@@ -125,28 +125,53 @@ npm run dev
 
 ### Environment Variables
 ```env
-# AWS Configuration
-AWS_REGION=
-AWS_ACCESS_KEY_ID=
-AWS_SECRET_ACCESS_KEY=
+# Environment Configuration Example
+# Copy this file to .env.local and fill in your actual values
 
-# Cognito
-COGNITO_USER_POOL_ID=
-COGNITO_CLIENT_ID=
-COGNITO_DOMAIN=
+# AWS Region Configuration
+NEXT_PUBLIC_REGION=us-east-1
+NEXT_PUBLIC_AWS_REGION=us-east-1
 
-# OpenSearch
-OPENSEARCH_DOMAIN=
-OPENSEARCH_USERNAME=
-OPENSEARCH_PASSWORD=
+# AWS Cognito Configuration
+NEXT_PUBLIC_USER_POOL_ID=us-east-1_XXXXXXXXX
+NEXT_PUBLIC_USER_POOL_CLIENT_ID=your-user-pool-client-id
+NEXT_PUBLIC_IDENTITY_POOL_ID=us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+NEXT_PUBLIC_COGNITO_DOMAIN=your-app-name.auth.us-east-1.amazoncognito.com
 
-# S3 Configuration
-S3_BUCKET_NAME=
-CLOUDFRONT_DISTRIBUTION_ID=
+# OAuth Redirect URLs
+NEXT_PUBLIC_OAUTH_REDIRECT_SIGNIN=https://your-cloudfront-domain.cloudfront.net/auth/callback
+NEXT_PUBLIC_OAUTH_REDIRECT_SIGNOUT=https://your-cloudfront-domain.cloudfront.net/auth/logout
 
-# Bedrock Configuration
-BEDROCK_MODEL_ID=
-BEDROCK_KB_ID=
+# DynamoDB Tables
+NEXT_PUBLIC_AGENTS_TABLE=your-app-name-agents
+NEXT_PUBLIC_CONVERSATIONS_TABLE=your-app-name-conversations
+NEXT_PUBLIC_GROUPS_TABLE=your-app-name-groups
+NEXT_PUBLIC_USER_GROUPS_TABLE=your-app-name-user-groups
+NEXT_PUBLIC_SHARED_AGENTS_TABLE=your-app-name-shared-agents
+NEXT_PUBLIC_SHARED_KNOWLEDGE_BASES_TABLE=your-app-name-shared-knowledge-bases
+
+# S3 Buckets
+NEXT_PUBLIC_ATTACHMENTS_BUCKET=your-app-name-attachments
+NEXT_PUBLIC_SPA_BUCKET=your-spa-bucket-name
+
+# API Endpoints
+NEXT_PUBLIC_AGENT_MANAGEMENT_API_URL=https://your-api-id.execute-api.us-east-1.amazonaws.com/prod/
+NEXT_PUBLIC_DOCUMENT_API_URL=https://your-api-id.execute-api.us-east-1.amazonaws.com/prod/
+NEXT_PUBLIC_KNOWLEDGE_BASE_API_URL=https://your-api-id.execute-api.us-east-1.amazonaws.com/prod/
+NEXT_PUBLIC_USER_MANAGEMENT_API_URL=https://your-api-id.execute-api.us-east-1.amazonaws.com/prod/
+NEXT_PUBLIC_GROUP_MANAGEMENT_API_URL=https://your-api-id.execute-api.us-east-1.amazonaws.com/prod/
+NEXT_PUBLIC_SHARED_RESOURCES_API_URL=https://your-api-id.execute-api.us-east-1.amazonaws.com/prod/
+NEXT_PUBLIC_PROFILE_API_URL=https://your-api-id.execute-api.us-east-1.amazonaws.com/prod/
+
+# CloudFront Distribution
+NEXT_PUBLIC_CLOUDFRONT_DOMAIN=your-cloudfront-domain.cloudfront.net
+
+# OpenSearch Configuration
+NEXT_PUBLIC_KB_COLLECTION_ID=your-opensearch-collection-id
+
+# Application Settings
+NEXT_PUBLIC_APP_NAME=LEGAIA Bedrock Chat
+NEXT_PUBLIC_ENVIRONMENT=development
 ```
 
 ## Deployment
