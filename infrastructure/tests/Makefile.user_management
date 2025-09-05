@@ -1,0 +1,189 @@
+# Makefile for User Management API Testing
+.PHONY: help install test-user-mgmt test-user-basic test-user-admin test-user-security test-user-performance test-user-integration test-user-edge-cases test-user-load test-user-smoke test-user-all clean-user-reports
+
+# Default target
+help:
+	@echo "User Management API Test Commands:"
+	@echo "  install                    - Install test dependencies"
+	@echo "  test-user-all             - Run all user management tests"
+	@echo "  test-user-basic           - Run basic functionality tests"
+	@echo "  test-user-admin           - Run admin-only tests"
+	@echo "  test-user-security        - Run security tests"
+	@echo "  test-user-performance     - Run performance tests"
+	@echo "  test-user-integration     - Run integration tests"
+	@echo "  test-user-edge-cases      - Run edge case tests"
+	@echo "  test-user-load            - Run load tests"
+	@echo "  test-user-smoke           - Run smoke tests"
+	@echo "  test-user-report          - Generate comprehensive report"
+	@echo "  validate-user-env         - Validate test environment"
+	@echo "  clean-user-reports        - Clean user management test reports"
+
+# Install dependencies
+install:
+	@echo "Installing test dependencies..."
+	pip install -r requirements.txt
+
+# Validate test environment
+validate-user-env:
+	@echo "Validating user management test environment..."
+	python run_user_management_tests.py --validate
+
+# Run all user management tests
+test-user-all:
+	@echo "Running all user management tests..."
+	python run_user_management_tests.py --all
+
+# Run basic functionality tests
+test-user-basic:
+	@echo "Running basic user management tests..."
+	python run_user_management_tests.py --category basic
+
+# Run admin-only tests
+test-user-admin:
+	@echo "Running admin user management tests..."
+	python run_user_management_tests.py --category admin
+
+# Run security tests
+test-user-security:
+	@echo "Running user management security tests..."
+	python run_user_management_tests.py --category security
+
+# Run performance tests
+test-user-performance:
+	@echo "Running user management performance tests..."
+	python run_user_management_tests.py --category performance
+
+# Run integration tests
+test-user-integration:
+	@echo "Running user management integration tests..."
+	python run_user_management_tests.py --category integration
+
+# Run edge case tests
+test-user-edge-cases:
+	@echo "Running user management edge case tests..."
+	python run_user_management_tests.py --category edge_cases
+
+# Run load tests
+test-user-load:
+	@echo "Running user management load tests..."
+	python run_user_management_tests.py --category load
+
+# Run smoke tests
+test-user-smoke:
+	@echo "Running user management smoke tests..."
+	python run_user_management_tests.py --smoke
+
+# Generate comprehensive report
+test-user-report:
+	@echo "Generating comprehensive user management test report..."
+	python run_user_management_tests.py --report
+
+# Run specific test files directly with pytest
+test-user-comprehensive:
+	@echo "Running comprehensive user management tests with pytest..."
+	pytest test_user_management_comprehensive.py -v --html=reports/user_comprehensive.html --self-contained-html
+
+test-user-edge-pytest:
+	@echo "Running edge case tests with pytest..."
+	pytest test_user_management_edge_cases.py -v --html=reports/user_edge_cases.html --self-contained-html
+
+test-user-load-pytest:
+	@echo "Running load tests with pytest..."
+	pytest test_user_management_load.py -v --html=reports/user_load.html --self-contained-html
+
+# Run tests with specific markers
+test-user-admin-only:
+	@echo "Running admin-only marked tests..."
+	pytest test_user_management_comprehensive.py -v -m "admin_only" --html=reports/user_admin_only.html --self-contained-html
+
+test-user-security-only:
+	@echo "Running security marked tests..."
+	pytest test_user_management_comprehensive.py test_user_management_edge_cases.py -v -m "security" --html=reports/user_security.html --self-contained-html
+
+test-user-performance-only:
+	@echo "Running performance marked tests..."
+	pytest test_user_management_load.py -v -m "performance" --html=reports/user_performance.html --self-contained-html
+
+# Quick development tests
+test-user-quick:
+	@echo "Running quick user management tests..."
+	pytest test_user_management_comprehensive.py -v -m "not slow and not performance" --tb=short
+
+# Coverage tests
+test-user-coverage:
+	@echo "Running user management tests with coverage..."
+	pytest test_user_management_comprehensive.py test_user_management_edge_cases.py --cov=. --cov-report=html:reports/user_coverage --cov-report=term-missing
+
+# Parallel test execution
+test-user-parallel:
+	@echo "Running user management tests in parallel..."
+	pytest test_user_management_comprehensive.py test_user_management_edge_cases.py -n auto --html=reports/user_parallel.html --self-contained-html
+
+# Stress testing
+test-user-stress:
+	@echo "Running user management stress tests..."
+	pytest test_user_management_load.py -v -m "performance and slow" --html=reports/user_stress.html --self-contained-html
+
+# Debug specific test
+debug-user-test:
+	@echo "Debug specific user management test..."
+	pytest test_user_management_comprehensive.py::TestUserManagementAPI::test_list_users_admin_success -v -s
+
+# Clean reports
+clean-user-reports:
+	@echo "Cleaning user management test reports..."
+	rm -rf reports/user_*.html
+	rm -rf reports/user_coverage/
+	rm -rf reports/.pytest_cache/
+
+# Development helpers
+dev-user-setup: install validate-user-env
+	@echo "User management development environment ready!"
+
+dev-user-test: test-user-smoke
+	@echo "User management development tests completed!"
+
+# CI/CD targets
+ci-user-test:
+	@echo "Running CI user management tests..."
+	pytest test_user_management_comprehensive.py -v --tb=short --maxfail=5 --html=reports/ci_user_report.html --self-contained-html
+
+ci-user-full:
+	@echo "Running full CI user management test suite..."
+	python run_user_management_tests.py --report
+
+# Monitoring and health checks
+health-check-user:
+	@echo "Running user management API health checks..."
+	pytest test_user_management_comprehensive.py::TestUserManagementAPI::test_list_users_admin_success -v
+
+# Test data management
+create-test-users:
+	@echo "Creating test users for manual testing..."
+	python -c "from auth_helper import auth; from test_config import config; auth.setup_test_users()"
+
+cleanup-test-users:
+	@echo "Cleaning up test users..."
+	python -c "from auth_helper import auth; auth.cleanup_test_users()"
+
+# Documentation and help
+docs-user:
+	@echo "User Management Test Documentation:"
+	@echo "  - Test files:"
+	@echo "    * test_user_management_comprehensive.py - Main functionality tests"
+	@echo "    * test_user_management_edge_cases.py   - Edge cases and error handling"
+	@echo "    * test_user_management_load.py         - Performance and load tests"
+	@echo "  - Configuration:"
+	@echo "    * user_management_test_config.py       - Test configuration and utilities"
+	@echo "    * run_user_management_tests.py         - Test runner script"
+	@echo "  - Reports: reports/ directory"
+	@echo "  - Coverage: reports/user_coverage/"
+
+# Example usage
+example-user-tests:
+	@echo "Example user management test commands:"
+	@echo "  make test-user-smoke          # Quick smoke tests"
+	@echo "  make test-user-admin          # Admin functionality tests"
+	@echo "  make test-user-security       # Security validation tests"
+	@echo "  make test-user-performance    # Performance benchmarks"
+	@echo "  make test-user-report         # Comprehensive test report"

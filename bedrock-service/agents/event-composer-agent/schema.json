@@ -1,0 +1,454 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Event Composer Agent API",
+    "description": "API for creating event announcements and videos using Claude AI",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://{api_endpoint}",
+      "variables": {
+        "api_endpoint": {
+          "default": "api-dev.llmchats.com/event-composer"
+        }
+      }
+    }
+  ],
+  "paths": {
+    "/start": {
+      "post": {
+        "operationId": "startEventComposer",
+        "summary": "Start a new event composer task",
+        "description": "Creates a new event composer task based on event details provided",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["event_name"],
+                "properties": {
+                  "event_name": {
+                    "type": "string",
+                    "description": "The name of the event"
+                  },
+                  "date_time": {
+                    "type": "string",
+                    "description": "The date and time of the event"
+                  },
+                  "location": {
+                    "type": "string",
+                    "description": "The location where the event will be held"
+                  },
+                  "tone": {
+                    "type": "string",
+                    "description": "The tone for the announcement (Lively or Formal)",
+                    "enum": ["Lively", "Formal"],
+                    "default": "Lively"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Event composer task started successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/{task_id}/chat": {
+      "post": {
+        "operationId": "sendChatMessage",
+        "summary": "Send a message in the event composer chat",
+        "description": "Process a chat message in an ongoing event composer task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The ID of the event composer task"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "description": "The message to send to the event composer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Message processed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "task_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/{task_id}/generate-video-prompts": {
+      "post": {
+        "operationId": "generateVideoPrompts",
+        "summary": "Generate video prompts from the announcement",
+        "description": "Generate video prompts based on the finalized announcement",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The ID of the event composer task"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Video prompts generated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task_id": {
+                      "type": "string"
+                    },
+                    "prompts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/{task_id}/generate-videos": {
+      "post": {
+        "operationId": "generateVideos",
+        "summary": "Generate videos from the prompts",
+        "description": "Generate videos based on the previously generated prompts",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The ID of the event composer task"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Video generation started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/{task_id}/accept-announcement": {
+      "post": {
+        "operationId": "acceptAnnouncement",
+        "summary": "Accept the current announcement draft",
+        "description": "Marks the current announcement as accepted and automatically generates video prompts",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The ID of the event composer task"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Announcement accepted, video prompt generation started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/{task_id}/status": {
+      "get": {
+        "operationId": "getTaskStatus",
+        "summary": "Get the status of an event composer task",
+        "description": "Retrieves the current status and progress of an event composer task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The ID of the event composer task"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task status retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "progress": {
+                      "type": "number",
+                      "format": "float"
+                    },
+                    "announcement": {
+                      "type": "string"
+                    },
+                    "conversation_history": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "video_prompts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "video_urls": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "created_at": {
+                      "type": "number"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "current_step": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tasks": {
+      "get": {
+        "operationId": "listEventTasks",
+        "summary": "List all event composer tasks",
+        "description": "Retrieves a list of all event composer tasks for the current user",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            },
+            "description": "Maximum number of tasks to return"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            },
+            "description": "Number of tasks to skip"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter tasks by status"
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "created_at",
+              "enum": ["created_at", "event_name", "status"]
+            },
+            "description": "Field to sort by"
+          },
+          {
+            "name": "sort_order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "desc",
+              "enum": ["asc", "desc"]
+            },
+            "description": "Sort order (asc or desc)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tasks retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tasks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "task_id": {
+                            "type": "string"
+                          },
+                          "event_name": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "progress": {
+                            "type": "number"
+                          },
+                          "created_at": {
+                            "type": "number"
+                          },
+                          "last_updated": {
+                            "type": "number"
+                          },
+                          "current_step": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "filtered": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ]
+}

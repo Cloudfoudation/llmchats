@@ -1,0 +1,16 @@
+boto3
+requests_aws4auth
+sagemaker
+fastapi
+uvicorn
+pydantic
+aiohttp
+python-jose[cryptography]
+PyJWT
+python-dotenv>=1.0.0
+langgraph
+langchain_aws
+pillow
+tavily-python
+weasyprint
+markdown

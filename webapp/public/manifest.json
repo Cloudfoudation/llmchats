@@ -1,0 +1,16 @@
+{
+  "name": "Bedrock Chat",
+  "short_name": "Bedrock",
+  "description": "A production-ready chat application for AWS Bedrock",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "icons/file.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    }
+  ]
+}

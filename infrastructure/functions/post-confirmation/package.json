@@ -1,0 +1,7 @@
+{
+  "name": "post-confirmation-lambda",
+  "version": "1.0.0",
+  "dependencies": {
+    "aws-sdk": "^2.1450.0"
+  }
+}

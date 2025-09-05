@@ -1,0 +1,2871 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: SAM template for SPA with S3 and CloudFront
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+  BucketName:
+    Type: String
+    Description: Name of the S3 bucket to store the SPA files
+  GoogleClientId:
+    Type: String
+    Description: Google OAuth Client ID
+  GoogleClientSecret:
+    Type: String
+    Description: Google OAuth Client Secret
+    NoEcho: true
+  AdminEmail:
+    Type: String
+    Description: Email address of the admin user
+  YourDomain:
+    Type: String
+    Default: http://localhost:3000
+  BDABucket:
+    Type: String
+    # Default: bedrock-bda-us-east-1-llmchats
+  AllowedOrigins:
+    Type: String
+    Default: '*'
+    Description: Comma-separated list of allowed origins for CORS
+
+Conditions:
+  IsDevEnvironment: !Equals [!Ref Environment, "dev"]
+  IsTestEnvironment: !Equals [!Ref Environment, "test"]
+  IsProdEnvironment: !Equals [!Ref Environment, "prod"]
+  IsDevOrTestEnvironment: !Or [!Condition IsDevEnvironment, !Condition IsTestEnvironment]
+
+Resources:
+
+  KBEncryptionPolicy:
+    Type: "AWS::OpenSearchServerless::SecurityPolicy"
+    Properties:
+      Name: !Sub ${AWS::StackName}-kb-enc
+      Type: encryption
+      Description: Encryption policy for Knowledge Base collection
+      Policy: !Sub |
+        {
+          "Rules":[{
+            "ResourceType":"collection",
+            "Resource":["collection/${AWS::StackName}-kb"]
+          }],
+          "AWSOwnedKey":true
+        }
+
+  KBAccessPolicy:
+    Type: "AWS::OpenSearchServerless::AccessPolicy"
+    DependsOn: BedrockCollection
+    Properties:
+      Name: !Sub ${AWS::StackName}-kb-access
+      Type: data
+      Description: Access policy for Knowledge Base collection
+      Policy: !Sub |
+        [
+          {
+            "Description": "Access for Bedrock Knowledge Base and Lambda",
+            "Rules": [
+              {
+                "ResourceType": "index",
+                "Resource": ["index/${AWS::StackName}-kb/*"],
+                "Permission": ["aoss:*"]
+              },
+              {
+                "ResourceType": "collection",
+                "Resource": ["collection/${AWS::StackName}-kb"],
+                "Permission": ["aoss:*"]
+              }
+            ],
+            "Principal": [
+              "${BedrockKBRole.Arn}",
+              "${CreateVectorIndexLambdaRole.Arn}"
+            ]
+          }
+        ]
+
+  KBNetworkPolicy:
+    Type: "AWS::OpenSearchServerless::SecurityPolicy"
+    Properties:
+      Name: !Sub ${AWS::StackName}-kb-net
+      Type: network
+      Description: Access policy for Knowledge Base collection
+      Policy: !Sub |
+        [
+          {
+            "Rules": [
+              {
+                "Resource": [
+                  "collection/${AWS::StackName}-kb"
+                ],
+                "ResourceType": "collection"
+              },
+              {
+                "Resource": [
+                  "collection/${AWS::StackName}-kb"
+                ],
+                "ResourceType": "dashboard"
+              }
+            ],
+            "AllowFromPublic": true
+          }
+        ]
+
+  BedrockCollection:
+    Type: "AWS::OpenSearchServerless::Collection"
+    DependsOn: KBEncryptionPolicy        
+    Properties:
+      Name: !Sub ${AWS::StackName}-kb
+      Type: VECTORSEARCH
+      Description: Collection for Bedrock Knowledge Base
+        
+  BedrockKBRole:
+    Type: AWS::IAM::Role
+    DependsOn: KMSKey
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                'aws:SourceAccount': !Ref AWS::AccountId
+      Policies:
+        - PolicyName: BedrockKBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                  - bedrock:ListFoundationModels
+                  - bedrock:GetFoundationModel
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/*'
+              - Effect: Allow
+                Action:
+                  - aoss:BatchGetCollection
+                  - aoss:APIAccessAll
+                Resource: !GetAtt BedrockCollection.Arn
+              - Effect: Allow
+                Action:
+                  - aoss:CreateIndex
+                  - aoss:DeleteIndex
+                  - aoss:UpdateIndex
+                  - aoss:ListIndices
+                  - aoss:DescribeIndex
+                Resource: !Sub '${BedrockCollection.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - aoss:WriteDocument
+                  - aoss:DeleteDocument
+                  - aoss:DeleteDocuments
+                  - aoss:SearchDocument
+                Resource: !Sub '${BedrockCollection.Arn}/index/*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt AttachmentsBucket.Arn
+                  - !Sub ${AttachmentsBucket.Arn}/*
+                Condition:
+                  StringEquals:
+                    's3:ExistingObjectTag/BedrockKB': 'true'
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                  - kms:GenerateDataKeyWithoutPlaintext
+                  - kms:DescribeKey
+                Resource: !GetAtt KMSKey.Arn
+                Condition:
+                  StringEquals:
+                    'kms:ViaService': !Sub 's3.${AWS::Region}.amazonaws.com'
+
+  # KMS Key for encryption
+  KMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS key for Bedrock Knowledge Base
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action: kms:*
+            Resource: '*'
+          - Sid: Allow Bedrock Service
+            Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+              - kms:DescribeKey
+            Resource: '*'
+
+  AttachmentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-attachments
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !Ref KMSKey
+            BucketKeyEnabled: true
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LoggingConfiguration:
+        DestinationBucketName: !Ref AccessLogsBucket
+        LogFilePrefix: attachments-access-logs/
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+          - Id: TransitionToIA
+            Status: Enabled
+            Transition:
+              StorageClass: STANDARD_IA
+              TransitionInDays: 30
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST, DELETE, HEAD]
+            AllowedOrigins: 
+              - !Sub https://${SPACloudFrontDistribution.DomainName}
+              - !Ref YourDomain
+            MaxAge: 3000
+            ExposedHeaders: [ETag]
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataClassification
+          Value: Sensitive
+
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${AWS::StackName}-user-pool
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      AutoVerifiedAttributes: !If
+        - IsDevOrTestEnvironment
+        - []  # No auto-verification for dev/test environment
+        - [email]  # Email verification for prod environment
+      UsernameAttributes:
+      - email
+      UsernameConfiguration:
+        CaseSensitive: false
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+      Schema:
+      - Name: email
+        AttributeDataType: String
+        Mutable: true
+        Required: true
+      - Name: profile
+        AttributeDataType: String
+        Mutable: true
+        Required: false
+      EmailConfiguration:
+        EmailSendingAccount: COGNITO_DEFAULT
+      VerificationMessageTemplate: !If
+        - IsDevOrTestEnvironment
+        - !Ref AWS::NoValue  # No verification template for dev/test
+        - DefaultEmailOption: CONFIRM_WITH_CODE
+          EmailSubject: Verify your email for our app
+          EmailMessage: Thanks for signing up! Your verification code is {####}
+      UserAttributeUpdateSettings: !If
+        - IsDevOrTestEnvironment
+        - !Ref AWS::NoValue  # No verification required for dev/test
+        - AttributesRequireVerificationBeforeUpdate:
+          - email
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+        - Name: verified_email
+          Priority: 1
+
+  # Google Identity Provider
+  GoogleIdentityProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    DependsOn: CognitoUserPool
+    Properties:
+      UserPoolId: !Ref CognitoUserPool
+      ProviderName: Google
+      ProviderType: Google
+      ProviderDetails:
+        client_id: !Ref GoogleClientId
+        client_secret: !Ref GoogleClientSecret
+        authorize_scopes: 'profile email openid'
+      AttributeMapping:
+        email: email
+        given_name: given_name
+        family_name: family_name
+        picture: picture
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: GoogleIdentityProvider
+    Properties:
+      UserPoolId: !Ref CognitoUserPool
+      ClientName: !Sub ${AWS::StackName}-app-client
+      GenerateSecret: false
+      SupportedIdentityProviders: 
+        - Google
+        - COGNITO
+      CallbackURLs: 
+        - !Sub https://${SPACloudFrontDistribution.DomainName}/auth/callback
+        - !Sub ${YourDomain}/auth/callback
+        - legaiai://
+      LogoutURLs:
+        - !Sub https://${SPACloudFrontDistribution.DomainName}
+        - !Sub ${YourDomain}
+        - legaiai://
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      PreventUserExistenceErrors: ENABLED
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      RefreshTokenValidity: 30
+
+  # Cognito Identity Pool
+  CognitoIdentityPool:
+    Type: AWS::Cognito::IdentityPool
+    Properties:
+      IdentityPoolName: !Sub ${AWS::StackName}-identity-pool
+      AllowUnauthenticatedIdentities: false
+      CognitoIdentityProviders:
+        - ClientId: !Ref UserPoolClient
+          ProviderName: !GetAtt CognitoUserPool.ProviderName
+          ServerSideTokenCheck: true
+
+  AdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: admin
+      UserPoolId: !Ref CognitoUserPool
+      Description: Admin users with full access
+      Precedence: 1
+
+  PaidGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: paid
+      UserPoolId: !Ref CognitoUserPool
+      Description: Paid users with extended access
+      Precedence: 2
+
+  FreeGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: free
+      UserPoolId: !Ref CognitoUserPool
+      Description: Free users with limited access
+      Precedence: 3
+
+  # IAM Role for authenticated users
+  CognitoAuthenticatedRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'cognito-identity.amazonaws.com:aud': !Ref CognitoIdentityPool
+              'ForAnyValue:StringLike':
+                'cognito-identity.amazonaws.com:amr': authenticated
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:ListFoundationModels
+                Resource: '*'
+  
+  CognitoUnauthenticatedRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'cognito-identity.amazonaws.com:aud': !Ref CognitoIdentityPool
+              'ForAnyValue:StringLike':
+                'cognito-identity.amazonaws.com:amr': unauthenticated
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:ListFoundationModels
+                Resource: '*'
+
+  IdentityPoolRoleAttachment:
+    Type: AWS::Cognito::IdentityPoolRoleAttachment
+    Properties:
+      IdentityPoolId: !Ref CognitoIdentityPool
+      Roles: 
+        authenticated: !GetAtt CognitoAuthenticatedRole.Arn
+        unauthenticated: !GetAtt CognitoUnauthenticatedRole.Arn
+      RoleMappings: 
+        CognitoProvider:
+          Type: Rules
+          IdentityProvider: !Sub 
+              - "cognito-idp.${Region}.amazonaws.com/${UserPoolId}:${UserPoolClientId}"
+              - Region: !Ref AWS::Region
+                UserPoolId: !Ref CognitoUserPool
+                UserPoolClientId: !Ref UserPoolClient
+          AmbiguousRoleResolution: AuthenticatedRole
+          RulesConfiguration:
+            Rules:
+              - Claim: "cognito:groups"
+                MatchType: Contains
+                RoleARN: !GetAtt AdminRole.Arn
+                Value: "admin"
+              - Claim: "cognito:groups"
+                MatchType: Contains
+                RoleARN: !GetAtt PaidUserRole.Arn
+                Value: "paid"
+              - Claim: "cognito:groups"
+                MatchType: Contains
+                RoleARN: !GetAtt FreeUserRole.Arn
+                Value: "free"
+
+  AdminRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'cognito-identity.amazonaws.com:aud': !Ref CognitoIdentityPool
+              'ForAnyValue:StringLike':
+                'cognito-identity.amazonaws.com:amr': authenticated
+      Policies:
+        - PolicyName: AdminAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:ListFoundationModels
+                  - bedrock:GetFoundationModel
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:ListKnowledgeBases
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:CreateKnowledgeBase
+                  - bedrock:DeleteKnowledgeBase
+                  - bedrock:GetKnowledgeBase
+                  - bedrock:UpdateKnowledgeBase
+                  - bedrock:TagResource
+                  - bedrock:UntagResource
+                  - bedrock:ListTagsForResource
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*'
+              - Effect: Allow
+                Action:
+                  - bedrock:CreateDataSource
+                  - bedrock:DeleteDataSource
+                  - bedrock:GetDataSource
+                  - bedrock:ListDataSources
+                  - bedrock:UpdateDataSource
+                  - bedrock:StartIngestionJob
+                  - bedrock:StopIngestionJob
+                  - bedrock:GetIngestionJob
+                  - bedrock:ListIngestionJobs
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*/data-source/*'
+              - Effect: Allow
+                Action:
+                  - bedrock:RetrieveAndGenerate
+                  - bedrock:Retrieve
+                  - bedrock:Rerank
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*'
+              - Effect: Allow
+                Action:
+                  - bedrock:ListAgents
+                  - bedrock:ListAgentAliases
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeAgent
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:agent/*'
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:agent-alias/*/*'
+              - Effect: Allow
+                Action:
+                  - sagemaker:InvokeEndpoint
+                  - sagemaker:InvokeEndpointAsync
+                Resource: 
+                  - !Sub 'arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/*'
+              - Effect: Allow
+                Action:
+                  - cognito-idp:AdminAddUserToGroup
+                  - cognito-idp:AdminRemoveUserFromGroup
+                  - cognito-idp:ListUsers
+                  - cognito-idp:ListGroups
+                Resource: !GetAtt CognitoUserPool.Arn
+              - Effect: Allow
+                Action: 
+                  - iam:PassRole
+                Resource: !GetAtt BedrockKBRole.Arn
+                Condition:
+                  StringEquals:
+                    'iam:PassedToService': 'bedrock.amazonaws.com'
+        - PolicyName: AdminDynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:Scan
+                Resource: 
+                  - !GetAtt AgentsTable.Arn
+                  - !GetAtt ConversationsTable.Arn
+                  - !GetAtt KnowledgeBasesTable.Arn
+                  - !GetAtt GroupsTable.Arn
+                  - !GetAtt UserGroupsTable.Arn
+                  - !GetAtt SharedAgentsTable.Arn
+                  - !GetAtt SharedKnowledgeBasesTable.Arn
+              # Admin can access any user's resources for management
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                Resource: 
+                  - !GetAtt AgentsTable.Arn
+                  - !GetAtt ConversationsTable.Arn
+                  - !GetAtt KnowledgeBasesTable.Arn
+        - PolicyName: AdminS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - s3:ListBucket
+                Resource: 
+                  - !GetAtt AttachmentsBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: 
+                  - !Sub ${AttachmentsBucket.Arn}/*
+        - PolicyName: GroupMediatorAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: 
+                  - !GetAtt CreateVectorIndexLambda.Arn
+        - PolicyName: KMSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                  - kms:DescribeKey
+                Resource: !GetAtt KMSKey.Arn
+  PaidUserRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'cognito-identity.amazonaws.com:aud': !Ref CognitoIdentityPool
+              'ForAnyValue:StringLike':
+                'cognito-identity.amazonaws.com:amr': authenticated
+      Policies:
+        - PolicyName: PaidUserAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:ListFoundationModels
+                  - bedrock:GetFoundationModel
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:ListKnowledgeBases
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:CreateKnowledgeBase
+                  - bedrock:TagResource
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*'
+                Condition:
+                  StringEquals:
+                    'aws:RequestedRegion': !Ref AWS::Region
+              - Effect: Allow
+                Action:
+                  - bedrock:ListAgents
+                  - bedrock:ListAgentAliases
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeAgent
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:agent/*'
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:agent-alias/*/*'
+              - Effect: Allow
+                Action:
+                  - sagemaker:InvokeEndpoint
+                  - sagemaker:InvokeEndpointAsync
+                Resource: 
+                  - !Sub 'arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/*'
+              - Effect: Allow 
+                Action:
+                  - bedrock:UntagResource
+                  - bedrock:ListTagsForResource
+                  - bedrock:GetKnowledgeBase
+                  - bedrock:DeleteKnowledgeBase
+                  - bedrock:UpdateKnowledgeBase
+                  - bedrock:RetrieveAndGenerate
+                  - bedrock:Retrieve
+                  - bedrock:Rerank
+                  - bedrock:CreateDataSource
+                  - bedrock:DeleteDataSource
+                  - bedrock:GetDataSource
+                  - bedrock:ListDataSources
+                  - bedrock:UpdateDataSource
+                  - bedrock:StartIngestionJob
+                  - bedrock:StopIngestionJob
+                  - bedrock:GetIngestionJob
+                  - bedrock:ListIngestionJobs
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*'
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*/data-source/*'
+                Condition:
+                  StringEquals:
+                    'aws:ResourceTag/Owner': '${cognito-identity.amazonaws.com:sub}'
+              - Effect: Allow
+                Action: 
+                  - iam:PassRole
+                Resource: !GetAtt BedrockKBRole.Arn
+                Condition:
+                  StringEquals:
+                    'iam:PassedToService': 'bedrock.amazonaws.com'
+        - PolicyName: PaidUserDynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Access to Agents and Conversations tables using identityId  
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt AgentsTable.Arn
+                  - !GetAtt ConversationsTable.Arn
+                  - !GetAtt KnowledgeBasesTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    'dynamodb:LeadingKeys': 
+                      - "${cognito-identity.amazonaws.com:sub}"
+              # Group-related tables access
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt GroupsTable.Arn
+                  - !GetAtt UserGroupsTable.Arn
+                  - !GetAtt SharedAgentsTable.Arn
+                  - !GetAtt SharedKnowledgeBasesTable.Arn
+        - PolicyName: PaidUserS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # User-owned resources
+              - Effect: Allow
+                Action: 
+                  - s3:ListBucket
+                Resource: 
+                  - !GetAtt AttachmentsBucket.Arn
+                Condition:
+                  StringLike:
+                    's3:prefix': 
+                      - 'users/${cognito-identity.amazonaws.com:sub}/*'
+                      - 'shared/public/*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: 
+                  - !Join ['', [!GetAtt AttachmentsBucket.Arn, '/users/${cognito-identity.amazonaws.com:sub}/*']]
+                  - !Join ['', [!GetAtt AttachmentsBucket.Arn, '/${cognito-identity.amazonaws.com:sub}/*']]
+        - PolicyName: GroupMediatorAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: 
+                  - !GetAtt CreateVectorIndexLambda.Arn
+        - PolicyName: KMSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                  - kms:DescribeKey
+                Resource: !GetAtt KMSKey.Arn
+  FreeUserRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'cognito-identity.amazonaws.com:aud': !Ref CognitoIdentityPool
+              'ForAnyValue:StringLike':
+                'cognito-identity.amazonaws.com:amr': authenticated
+      Policies:
+        - PolicyName: FreeUserAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/meta.llama3-2-1b-instruct-v1:0'
+                Condition:
+                  StringEquals:
+                    'aws:RequestedRegion': !Ref AWS::Region
+        - PolicyName: FreeUserDynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Access to user's own resources using identityId
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt AgentsTable.Arn
+                  - !GetAtt ConversationsTable.Arn
+                  - !GetAtt KnowledgeBasesTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    'dynamodb:LeadingKeys':
+                      - "${cognito-identity.amazonaws.com:sub}"
+              # Limited access to groups (read only)
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt GroupsTable.Arn
+                  - !GetAtt UserGroupsTable.Arn
+                  - !GetAtt SharedAgentsTable.Arn
+                  - !GetAtt SharedKnowledgeBasesTable.Arn                
+        - PolicyName: FreeUserS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - s3:ListBucket
+                Resource: !GetAtt AttachmentsBucket.Arn
+                Condition:
+                  StringLike:
+                    's3:prefix': 
+                      - 'users/${cognito-identity.amazonaws.com:sub}/*'
+                      - 'shared/public/*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: 
+                  - !Join ['', [!GetAtt AttachmentsBucket.Arn, '/users/${cognito-identity.amazonaws.com:sub}/*']]
+
+  CognitoDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub ${AWS::StackName}
+      UserPoolId: !Ref CognitoUserPool
+
+  # Access Logs Bucket
+  AccessLogsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-access-logs
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !Ref KMSKey
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldLogs
+            Status: Enabled
+            ExpirationInDays: 90
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: AccessLogs
+
+  SPABucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  CloudFrontOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub ${AWS::StackName}-OAC
+        Description: Origin Access Control for SPA
+        SigningBehavior: always
+        SigningProtocol: sigv4
+        OriginAccessControlOriginType: s3
+
+  URLRewriteFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub ${AWS::StackName}-url-rewrite
+      AutoPublish: true
+      FunctionConfig:
+        Comment: "Rewrite URLs to handle SPA routing"
+        Runtime: cloudfront-js-1.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          var uri = request.uri;
+          
+          if (uri.endsWith('/')) {
+            request.uri += 'index.html';
+          } else if (!uri.includes('.')) {
+            request.uri += '/index.html';
+          }
+          
+          return request;
+        }
+
+  SPACloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: CloudFront Distribution for SPA
+        Origins:
+          - DomainName: !Sub ${SPABucket.RegionalDomainName}
+            Id: S3Origin
+            OriginAccessControlId: !Ref CloudFrontOriginAccessControl
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        Enabled: true
+        DefaultRootObject: index.html
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          TargetOriginId: S3Origin
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          DefaultTTL: 86400
+          MinTTL: 0
+          MaxTTL: 31536000
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt URLRewriteFunction.FunctionARN
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponsePagePath: /index.html
+            ResponseCode: 200
+            ErrorCachingMinTTL: 300
+          - ErrorCode: 404
+            ResponsePagePath: /index.html
+            ResponseCode: 200
+            ErrorCachingMinTTL: 300
+        PriceClass: PriceClass_100
+        HttpVersion: http2
+
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SPABucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${SPABucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${SPACloudFrontDistribution}
+
+  PreSignupLambda:
+    Type: AWS::Serverless::Function
+    DependsOn: CognitoUserPool
+    Properties:
+      Handler: index.handler
+      Runtime: nodejs18.x
+      CodeUri: ./functions/pre-signup/
+      Role: !GetAtt PreSignupLambdaRole.Arn
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+
+  PostConfirmationLambda:
+    Type: AWS::Serverless::Function
+    DependsOn: CognitoUserPool
+    Properties:
+      Handler: index.handler
+      Runtime: nodejs18.x
+      CodeUri: ./functions/post-confirmation/
+      Role: !GetAtt PostConfirmationLambdaRole.Arn
+      Environment:
+        Variables:
+          USER_POOL_ID: !Ref CognitoUserPool
+          ADMIN_EMAIL: !Ref AdminEmail
+
+  # IAM role for Pre Signup Lambda  
+  PreSignupLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  # IAM role for Post Confirmation Lambda
+  PostConfirmationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: CognitoAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cognito-idp:AdminAddUserToGroup
+                Resource: !GetAtt CognitoUserPool.Arn
+
+  # Lambda permission for Pre Signup trigger
+  PreSignupLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt PreSignupLambda.Arn
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt CognitoUserPool.Arn
+
+  # Lambda permission for Post Confirmation trigger
+  PostConfirmationLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt PostConfirmationLambda.Arn
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt CognitoUserPool.Arn
+
+  # DynamoDB Tables
+  AgentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-agents
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: id
+          KeyType: RANGE
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref KMSKey
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataClassification
+          Value: Sensitive
+
+  ConversationsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-conversations
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: id
+          KeyType: RANGE
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref KMSKey
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataClassification
+          Value: Sensitive
+
+  KnowledgeBasesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-knowledge-bases
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: knowledgeBaseId
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: knowledgeBaseId
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: KnowledgeBaseIdIndex
+          KeySchema:
+            - AttributeName: knowledgeBaseId
+              KeyType: HASH
+            - AttributeName: status
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref KMSKey
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataClassification
+          Value: Sensitive
+
+  # New Group Management Tables
+  GroupsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-groups
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: groupId
+          AttributeType: S
+        - AttributeName: createdBy
+          AttributeType: S
+      KeySchema:
+        - AttributeName: groupId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: CreatedByIndex
+          KeySchema:
+            - AttributeName: createdBy
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref KMSKey
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataClassification
+          Value: Sensitive
+
+  UserGroupsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-user-groups
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: groupId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: groupId
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GroupMembersIndex
+          KeySchema:
+            - AttributeName: groupId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref KMSKey
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataClassification
+          Value: Sensitive
+
+  SharedAgentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-shared-agents
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: groupId
+          AttributeType: S
+        - AttributeName: agentId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: groupId
+          KeyType: HASH
+        - AttributeName: agentId
+          KeyType: RANGE
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref KMSKey
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataClassification
+          Value: Sensitive
+
+  SharedKnowledgeBasesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-shared-knowledge-bases
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: groupId
+          AttributeType: S
+        - AttributeName: knowledgeBaseId
+          AttributeType: S
+        - AttributeName: sharedBy
+          AttributeType: S
+      KeySchema:
+        - AttributeName: groupId
+          KeyType: HASH
+        - AttributeName: knowledgeBaseId
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: KnowledgeBaseSharedByIndex
+          KeySchema:
+            - AttributeName: knowledgeBaseId
+              KeyType: HASH
+            - AttributeName: sharedBy
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref KMSKey
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataClassification
+          Value: Sensitive
+
+  CreateVectorIndexLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.handler
+      Runtime: python3.9
+      CodeUri: ./functions/create-vector-index/
+      Role: !GetAtt CreateVectorIndexLambdaRole.Arn
+      Timeout: 15
+      Environment:
+        Variables:
+          AOSS_COLLECTION_ID: !Ref BedrockCollection
+          REGION_NAME: !Ref AWS::Region
+
+  CreateVectorIndexLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - aoss:APIAccessAll
+                  - aoss:CreateIndex
+                  - aoss:DeleteIndex
+                  - aoss:UpdateIndex
+                  - aoss:DescribeIndex
+                  - aoss:ListIndices
+                  - aoss:BatchGetCollection
+                Resource: !GetAtt BedrockCollection.Arn
+        - PolicyName: OpenSearchDataAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:ESHttp*
+                Resource: !GetAtt BedrockCollection.Arn
+
+# VPC Configuration
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-VPC
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Private Subnets
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Private-1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Private-2
+
+  # NAT Gateway Components
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.3.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Public-1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.4.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Public-2
+      
+  NatGatewayEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+
+  # Route Tables
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Public-RT
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Private-RT
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  # Security Group for ECS Tasks
+  EcsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ECS tasks
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+          Description: Allow HTTP traffic from ALB
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS outbound for AWS API calls
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP outbound for package downloads
+        - IpProtocol: tcp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: 0.0.0.0/0
+          Description: DNS TCP queries
+        - IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: 0.0.0.0/0
+          Description: DNS UDP queries
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-ECS-SG
+
+  # Security Group for Application Load Balancer
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Application Load Balancer
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS inbound from internet
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP inbound from internet (redirect to HTTPS)
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-ALB-SG
+
+  # Security Group for RDS Database
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RDS database
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref EcsSecurityGroup
+          Description: PostgreSQL access from ECS tasks only
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 127.0.0.1/32
+          Description: Deny all outbound traffic (placeholder rule)
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-DB-SG                
+
+  SyncSessionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-sync-sessions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: sessionId
+          AttributeType: S
+        - AttributeName: knowledgeBaseId
+          AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: sessionId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: KnowledgeBaseUserIndex
+          KeySchema:
+            - AttributeName: knowledgeBaseId
+              KeyType: HASH
+            - AttributeName: userId
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref KMSKey
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataClassification
+          Value: Sensitive
+
+  # SQS Queues for Async BDA Processing
+  BDAJobQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AWS::StackName}-bda-jobs
+      MessageRetentionPeriod: 1209600  # 14 days
+      VisibilityTimeout: 900    # 15 minutes (Lambda timeout)
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt BDAJobDLQ.Arn
+        maxReceiveCount: 3
+
+  BDAJobDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AWS::StackName}-bda-jobs-dlq
+      MessageRetentionPeriod: 1209600  # 14 days
+
+  BDAResultsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AWS::StackName}-bda-results
+      MessageRetentionPeriod: 1209600  # 14 days
+      VisibilityTimeout: 300    # 5 minutes
+
+  # BDA Processor Lambda Function
+  BDAProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      CodeUri: ./functions/bda-processor/
+      Role: !GetAtt BDAProcessorLambdaRole.Arn
+      Timeout: 900  # 15 minutes
+      Environment:
+        Variables:
+          ATTACHMENTS_BUCKET: !Ref AttachmentsBucket
+          BDA_BUCKET: !Ref BDABucket
+          BEDROCK_KB_ROLE_ARN: !GetAtt BedrockKBRole.Arn
+          BDA_RESULTS_QUEUE_URL: !Ref BDAResultsQueue
+          SYNC_SESSIONS_TABLE: !Ref SyncSessionsTable
+          REGION_NAME: !Ref AWS::Region
+      Events:
+        SQSTrigger:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt BDAJobQueue.Arn
+            BatchSize: 1  # Process one file at a time for better error handling
+
+  BDAProcessorLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BDAProcessorS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                  - s3:GetObjectTagging
+                  - s3:PutObjectTagging
+                Resource: 
+                  - !GetAtt AttachmentsBucket.Arn
+                  - !Sub "${AttachmentsBucket.Arn}/*"
+                  - !Sub arn:aws:s3:::${BDABucket}/*
+                  - !Sub arn:aws:s3:::${BDABucket}
+        - PolicyName: BDAProcessorBDAAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:ListDataAutomationProjects
+                  - bedrock:CreateDataAutomationProject
+                  - bedrock:GetDataAutomationProject
+                  - bedrock:UpdateDataAutomationProject
+                  - bedrock:DeleteDataAutomationProject
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:us-east-1:${AWS::AccountId}:data-automation-project/*'
+              - Effect: Allow
+                Action:
+                  - bedrock:TagResource
+                  - bedrock:UntagResource
+                  - bedrock:ListTagsForResource
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:us-east-1:${AWS::AccountId}:data-automation-project/*'
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeDataAutomationAsync
+                  - bedrock:GetDataAutomationStatus
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:us-east-1:${AWS::AccountId}:data-automation-invocation/*'
+        - PolicyName: BDAProcessorSQSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt BDAJobQueue.Arn
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt BDAResultsQueue.Arn
+        - PolicyName: BDAProcessorDynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                Resource: 
+                  - !GetAtt SyncSessionsTable.Arn
+                  - !Sub "${SyncSessionsTable.Arn}/index/*"
+        - PolicyName: BDAProcessorBedrockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:StartIngestionJob
+                  - bedrock:StopIngestionJob
+                  - bedrock:GetIngestionJob
+                  - bedrock:ListIngestionJobs
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*/ingestion-job/*'
+              - Effect: Allow
+                Action:
+                  - bedrock:GetDataSource
+                  - bedrock:ListDataSources
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*/data-source/*'
+              - Effect: Allow
+                Action:
+                  - bedrock:GetKnowledgeBase
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*'
+        - PolicyName: BDAProcessorSTSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sts:GetCallerIdentity
+                Resource: '*'
+
+  CustomAuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: custom_authorizer.lambda_handler
+      Runtime: python3.9
+      CodeUri: ./functions/authorizer/
+      Environment:
+        Variables:
+          USER_POOL_ID: !Ref CognitoUserPool
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - 'cognito-idp:GetUser'
+              Resource: '*'
+
+  CustomIsPaidAuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: ispaid_custom_authorizer.lambda_handler
+      Runtime: python3.9
+      CodeUri: ./functions/authorizer/
+      Environment:
+        Variables:
+          USER_POOL_ID: !Ref CognitoUserPool
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - 'cognito-idp:GetUser'
+              Resource: '*'
+
+  # User Management API
+  UserManagementApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Auth:
+        Authorizers:
+          CustomAuthorizer:
+            FunctionArn: !GetAtt CustomAuthorizerFunction.Arn
+            Identity:
+              Header: Authorization
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+
+  UserManagementFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      CodeUri: ./functions/user-management/
+      Timeout: 30
+      Environment:
+        Variables:
+          USER_POOL_ID: !Ref CognitoUserPool
+          ALLOWED_ORIGINS: '*'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - 'cognito-idp:ListUsers'
+                - 'cognito-idp:AdminCreateUser'
+                - 'cognito-idp:AdminDeleteUser'
+                - 'cognito-idp:AdminAddUserToGroup'
+                - 'cognito-idp:AdminRemoveUserFromGroup'
+                - 'cognito-idp:AdminGetUser'
+                - 'cognito-idp:AdminListGroupsForUser'
+                - 'cognito-idp:AdminUpdateUserAttributes'
+                - 'cognito-idp:ListGroups'
+              Resource: !GetAtt CognitoUserPool.Arn
+      Events:
+        ListUsers:
+          Type: Api
+          Properties:
+            RestApiId: !Ref UserManagementApi
+            Path: /users
+            Method: GET
+            Auth:
+              Authorizer: CustomAuthorizer
+        CreateUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref UserManagementApi
+            Path: /users
+            Method: POST
+            Auth:
+              Authorizer: CustomAuthorizer
+        GetUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref UserManagementApi
+            Path: /users/{username}
+            Method: GET
+            Auth:
+              Authorizer: CustomAuthorizer
+        DeleteUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref UserManagementApi
+            Path: /users/{username}
+            Method: DELETE
+            Auth:
+              Authorizer: CustomAuthorizer
+        UpdateUserGroups:
+          Type: Api
+          Properties:
+            RestApiId: !Ref UserManagementApi
+            Path: /users/{username}/groups
+            Method: PUT
+            Auth:
+              Authorizer: CustomAuthorizer
+
+  # Profile Management API
+  ProfileApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Auth:
+        Authorizers:
+          CustomAuthorizer:
+            FunctionArn: !GetAtt CustomIsPaidAuthorizerFunction.Arn
+            Identity:
+              Header: Authorization
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+
+  ProfileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      CodeUri: ./functions/user-management/
+      Timeout: 30
+      Environment:
+        Variables:
+          USER_POOL_ID: !Ref CognitoUserPool
+          ALLOWED_ORIGINS: '*'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - 'cognito-idp:AdminGetUser'
+                - 'cognito-idp:AdminUpdateUserAttributes'
+              Resource: !GetAtt CognitoUserPool.Arn
+      Events:
+        GetProfile:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProfileApi
+            Path: /profile
+            Method: GET
+            Auth:
+              Authorizer: CustomAuthorizer
+        UpdateProfile:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProfileApi
+            Path: /profile
+            Method: PUT
+            Auth:
+              Authorizer: CustomAuthorizer
+
+  # Group Management API
+  GroupManagementApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Auth:
+        Authorizers:
+          CustomAuthorizer:
+            FunctionArn: !GetAtt CustomIsPaidAuthorizerFunction.Arn
+            Identity:
+              Header: Authorization
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+
+  GroupManagementFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      CodeUri: ./functions/group-management/
+      Timeout: 30
+      Environment:
+        Variables:
+          GROUPS_TABLE: !Ref GroupsTable
+          USER_GROUPS_TABLE: !Ref UserGroupsTable
+          SHARED_AGENTS_TABLE: !Ref SharedAgentsTable
+          SHARED_KB_TABLE: !Ref SharedKnowledgeBasesTable
+          USER_POOL_ID: !Ref CognitoUserPool
+          IDENTITY_POOL_ID: !Ref CognitoIdentityPool
+          ALLOWED_ORIGINS: '*'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:Query
+                - dynamodb:Scan
+                - dynamodb:BatchGetItem
+                - dynamodb:BatchWriteItem
+              Resource:
+                - !GetAtt GroupsTable.Arn
+                - !GetAtt UserGroupsTable.Arn
+                - !GetAtt SharedAgentsTable.Arn
+                - !GetAtt SharedKnowledgeBasesTable.Arn
+                - !Sub "${UserGroupsTable.Arn}/index/*"
+                - !Sub "${GroupsTable.Arn}/index/*"
+            - Effect: Allow
+              Action:
+                - 'cognito-idp:AdminGetUser'
+                - 'cognito-idp:ListUsers'
+              Resource: !GetAtt CognitoUserPool.Arn
+            - Effect: Allow
+              Action:
+                - cognito-identity:GetId
+              Resource: !Sub arn:aws:cognito-identity:${AWS::Region}:${AWS::AccountId}:identitypool/${CognitoIdentityPool}           
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+                - kms:GenerateDataKey
+                - kms:DescribeKey
+              Resource: !GetAtt KMSKey.Arn
+      Events:
+        # Group CRUD operations
+        ListGroups:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroupManagementApi
+            Path: /groups
+            Method: GET
+            Auth:
+              Authorizer: CustomAuthorizer
+        CreateGroup:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroupManagementApi
+            Path: /groups
+            Method: POST
+            Auth:
+              Authorizer: CustomAuthorizer
+        GetGroup:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroupManagementApi
+            Path: /groups/{groupId}
+            Method: GET
+            Auth:
+              Authorizer: CustomAuthorizer
+        UpdateGroup:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroupManagementApi
+            Path: /groups/{groupId}
+            Method: PUT
+            Auth:
+              Authorizer: CustomAuthorizer
+        DeleteGroup:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroupManagementApi
+            Path: /groups/{groupId}
+            Method: DELETE
+            Auth:
+              Authorizer: CustomAuthorizer
+        # Group membership operations
+        AddMember:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroupManagementApi
+            Path: /groups/{groupId}/members
+            Method: POST
+            Auth:
+              Authorizer: CustomAuthorizer
+        RemoveMember:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroupManagementApi
+            Path: /groups/{groupId}/members/{userId}
+            Method: DELETE
+            Auth:
+              Authorizer: CustomAuthorizer
+        ListMembers:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroupManagementApi
+            Path: /groups/{groupId}/members
+            Method: GET
+            Auth:
+              Authorizer: CustomAuthorizer
+        UpdateMemberRole:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroupManagementApi
+            Path: /groups/{groupId}/members/{userId}
+            Method: PUT
+            Auth:
+              Authorizer: CustomAuthorizer
+
+  SharedResourcesApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Auth:
+        Authorizers:
+          CustomAuthorizer:
+            FunctionArn: !GetAtt CustomIsPaidAuthorizerFunction.Arn
+            Identity:
+              Header: Authorization
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+
+  SharedResourcesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      CodeUri: ./functions/shared-resources/
+      Timeout: 30
+      Environment:
+        Variables:
+          SHARED_KB_TABLE: !Ref SharedKnowledgeBasesTable
+          SHARED_AGENTS_TABLE: !Ref SharedAgentsTable
+          USER_GROUPS_TABLE: !Ref UserGroupsTable
+          GROUPS_TABLE: !Ref GroupsTable
+          KB_TABLE: !Ref KnowledgeBasesTable
+          AGENTS_TABLE: !Ref AgentsTable
+          USER_POOL_ID: !Ref CognitoUserPool
+          IDENTITY_POOL_ID: !Ref CognitoIdentityPool          
+          ALLOWED_ORIGINS: '*'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:Query
+                - dynamodb:BatchGetItem
+                - dynamodb:BatchWriteItem
+              Resource:
+                - !GetAtt GroupsTable.Arn
+                - !GetAtt UserGroupsTable.Arn
+                - !GetAtt SharedAgentsTable.Arn
+                - !GetAtt SharedKnowledgeBasesTable.Arn
+                - !GetAtt KnowledgeBasesTable.Arn
+                - !GetAtt AgentsTable.Arn
+                - !Sub "${UserGroupsTable.Arn}/index/*"
+                - !Sub "${GroupsTable.Arn}/index/*"
+                - !Sub "${KnowledgeBasesTable.Arn}/index/*"
+                - !Sub "${SharedKnowledgeBasesTable.Arn}/index/*"
+            - Effect: Allow
+              Action:
+                - cognito-identity:GetId
+              Resource: !Sub arn:aws:cognito-identity:${AWS::Region}:${AWS::AccountId}:identitypool/${CognitoIdentityPool}           
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+                - kms:GenerateDataKey
+                - kms:DescribeKey
+              Resource: !GetAtt KMSKey.Arn      
+      Events:
+        ListSharedResources:
+          Type: Api
+          Properties:
+            RestApiId: !Ref SharedResourcesApi
+            Path: /shared-resources
+            Method: GET
+            Auth:
+              Authorizer: CustomAuthorizer
+        ListResourcesSharedToMe:
+          Type: Api
+          Properties:
+            RestApiId: !Ref SharedResourcesApi
+            Path: /shared-resources/shared-to-me
+            Method: GET
+            Auth:
+              Authorizer: CustomAuthorizer
+        ShareResource:
+          Type: Api
+          Properties:
+            RestApiId: !Ref SharedResourcesApi
+            Path: /shared-resources
+            Method: POST
+            Auth:
+              Authorizer: CustomAuthorizer
+        UnshareResource:
+          Type: Api
+          Properties:
+            RestApiId: !Ref SharedResourcesApi
+            Path: /shared-resources/{resourceType}/{resourceId}/groups/{groupId}
+            Method: DELETE
+            Auth:
+              Authorizer: CustomAuthorizer
+        UpdateSharedResource:
+          Type: Api
+          Properties:
+            RestApiId: !Ref SharedResourcesApi
+            Path: /shared-resources/{resourceType}/{resourceId}/groups/{groupId}
+            Method: PUT
+            Auth:
+              Authorizer: CustomAuthorizer
+
+  KnowledgeBaseApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Auth:
+        Authorizers:
+          CustomAuthorizer:
+            FunctionArn: !GetAtt CustomIsPaidAuthorizerFunction.Arn
+            Identity:
+              Header: Authorization
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+
+  KnowledgeBaseManagementFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      CodeUri: ./functions/knowledge-base-api/
+      Timeout: 900
+      Environment:
+        Variables:
+          KB_TABLE: !Ref KnowledgeBasesTable
+          SHARED_KB_TABLE: !Ref SharedKnowledgeBasesTable
+          USER_GROUPS_TABLE: !Ref UserGroupsTable
+          ATTACHMENTS_BUCKET: !Ref AttachmentsBucket
+          BDA_BUCKET: !Ref BDABucket
+          BEDROCK_KB_ROLE_ARN: !GetAtt BedrockKBRole.Arn
+          AOSS_COLLECTION_ID: !Ref BedrockCollection
+          CREATE_VECTOR_INDEX_LAMBDA: !Ref CreateVectorIndexLambda
+          REGION_NAME: !Ref AWS::Region
+          AWS_ACCOUNT_ID: !Ref AWS::AccountId
+          USER_POOL_ID: !Ref CognitoUserPool
+          IDENTITY_POOL_ID: !Ref CognitoIdentityPool
+          BDA_JOB_QUEUE_URL: !Ref BDAJobQueue
+          SYNC_SESSIONS_TABLE: !Ref SyncSessionsTable
+          ALLOWED_ORIGINS: '*'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:Query
+                - dynamodb:BatchGetItem
+                - dynamodb:BatchWriteItem
+                - dynamodb:Scan
+              Resource:
+                - !GetAtt KnowledgeBasesTable.Arn
+                - !GetAtt SharedKnowledgeBasesTable.Arn
+                - !GetAtt UserGroupsTable.Arn
+                - !GetAtt SyncSessionsTable.Arn
+                - !Sub "${KnowledgeBasesTable.Arn}/index/*"
+                - !Sub "${SharedKnowledgeBasesTable.Arn}/index/*"
+                - !Sub "${UserGroupsTable.Arn}/index/*"
+                - !Sub "${SyncSessionsTable.Arn}/index/*"
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+                - bedrock:ListFoundationModels
+                - bedrock:GetFoundationModel
+              Resource: 
+                - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/*'
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource: 
+                - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*'
+            - Effect: Allow
+              Action:
+                - bedrock:CreateKnowledgeBase
+                - bedrock:DeleteKnowledgeBase
+                - bedrock:GetKnowledgeBase
+                - bedrock:ListKnowledgeBases
+                - bedrock:UpdateKnowledgeBase
+                - bedrock:TagResource
+                - bedrock:UntagResource
+                - bedrock:ListTagsForResource
+                - bedrock:RetrieveAndGenerate
+                - bedrock:Retrieve
+                - bedrock:Rerank
+              Resource: 
+                - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*'
+            - Effect: Allow
+              Action:
+                - bedrock:ListDataSources
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - bedrock:CreateDataSource
+                - bedrock:DeleteDataSource
+                - bedrock:GetDataSource
+                - bedrock:UpdateDataSource
+                - bedrock:StartIngestionJob
+                - bedrock:StopIngestionJob
+                - bedrock:GetIngestionJob
+                - bedrock:ListIngestionJobs
+              Resource: 
+                - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*/data-source/*'
+                - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*/ingestion-job/*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:DeleteObject
+                - s3:ListBucket
+              Resource:
+                - !GetAtt AttachmentsBucket.Arn
+                - !Sub "${AttachmentsBucket.Arn}/*"
+                - !Sub arn:aws:s3:::${BDABucket}/*
+                - !Sub arn:aws:s3:::${BDABucket}
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !GetAtt CreateVectorIndexLambda.Arn
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource: !GetAtt BedrockKBRole.Arn
+              Condition:
+                StringEquals:
+                  'iam:PassedToService': 'bedrock.amazonaws.com'
+            - Effect: Allow
+              Action:
+                - sqs:SendMessage
+                - sqs:GetQueueAttributes
+              Resource: !GetAtt BDAJobQueue.Arn
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+                - kms:GenerateDataKey
+                - kms:DescribeKey
+              Resource: !GetAtt KMSKey.Arn
+      Events:
+        # Knowledge Base CRUD
+        ListKnowledgeBases:
+          Type: Api
+          Properties:
+            RestApiId: !Ref KnowledgeBaseApi
+            Path: /knowledge-bases
+            Method: GET
+            Auth:
+              Authorizer: CustomAuthorizer
+        CreateKnowledgeBase:
+          Type: Api
+          Properties:
+            RestApiId: !Ref KnowledgeBaseApi
+            Path: /knowledge-bases
+            Method: POST
+            Auth:
+              Authorizer: CustomAuthorizer
+        GetKnowledgeBase:
+          Type: Api
+          Properties:
+            RestApiId: !Ref KnowledgeBaseApi
+            Path: /knowledge-bases/{knowledgeBaseId}
+            Method: GET
+            Auth:
+              Authorizer: CustomAuthorizer
+        UpdateKnowledgeBase:
+          Type: Api
+          Properties:
+            RestApiId: !Ref KnowledgeBaseApi
+            Path: /knowledge-bases/{knowledgeBaseId}
+            Method: PUT
+            Auth:
+              Authorizer: CustomAuthorizer
+        DeleteKnowledgeBase:
+          Type: Api
+          Properties:
+            RestApiId: !Ref KnowledgeBaseApi
+            Path: /knowledge-bases/{knowledgeBaseId}
+            Method: DELETE
+            Auth:
+              Authorizer: CustomAuthorizer
+        # Data Source operations
+        ListDataSources:
+          Type: Api
+          Properties:
+            RestApiId: !Ref KnowledgeBaseApi
+            Path: /knowledge-bases/{knowledgeBaseId}/data-sources
+            Method: GET
+            Auth:
+              Authorizer: CustomAuthorizer
+        CreateDataSource:
+          Type: Api
+          Properties:
+            RestApiId: !Ref KnowledgeBaseApi
+            Path: /knowledge-bases/{knowledgeBaseId}/data-sources
+            Method: POST
+            Auth:
+              Authorizer: CustomAuthorizer
+        DeleteDataSource:
+          Type: Api
+          Properties:
+            RestApiId: !Ref KnowledgeBaseApi
+            Path: /knowledge-bases/{knowledgeBaseId}/data-sources/{dataSourceId}
+            Method: DELETE
+            Auth:
+              Authorizer: CustomAuthorizer
+        # Ingestion operations
+        StartSync:
+          Type: Api
+          Properties:
+            RestApiId: !Ref KnowledgeBaseApi
+            Path: /knowledge-bases/{knowledgeBaseId}/sync
+            Method: POST
+            Auth:
+              Authorizer: CustomAuthorizer
+        StopSync:
+          Type: Api
+          Properties:
+            RestApiId: !Ref KnowledgeBaseApi
+            Path: /knowledge-bases/{knowledgeBaseId}/sync/{ingestionJobId}
+            Method: DELETE
+            Auth:
+              Authorizer: CustomAuthorizer
+        GetSyncStatus:
+          Type: Api
+          Properties:
+            RestApiId: !Ref KnowledgeBaseApi
+            Path: /knowledge-bases/{knowledgeBaseId}/sync
+            Method: GET
+            Auth:
+              Authorizer: CustomAuthorizer
+        # File operations
+        ListFiles:
+          Type: Api
+          Properties:
+            RestApiId: !Ref KnowledgeBaseApi
+            Path: /knowledge-bases/{knowledgeBaseId}/files
+            Method: GET
+            Auth:
+              Authorizer: CustomAuthorizer
+        UploadFiles:
+          Type: Api
+          Properties:
+            RestApiId: !Ref KnowledgeBaseApi
+            Path: /knowledge-bases/{knowledgeBaseId}/files
+            Method: POST
+            Auth:
+              Authorizer: CustomAuthorizer
+        GetFileDownloadUrl:
+          Type: Api
+          Properties:
+            RestApiId: !Ref KnowledgeBaseApi
+            Path: /knowledge-bases/{knowledgeBaseId}/files/download
+            Method: GET
+            Auth:
+              Authorizer: CustomAuthorizer
+        DeleteFile:
+          Type: Api
+          Properties:
+            RestApiId: !Ref KnowledgeBaseApi
+            Path: /knowledge-bases/{knowledgeBaseId}/files
+            Method: DELETE
+            Auth:
+              Authorizer: CustomAuthorizer
+        KnowledgeBaseRetrieve:
+          Type: Api
+          Properties:
+            RestApiId: !Ref KnowledgeBaseApi
+            Path: /knowledge-bases/{knowledgeBaseId}/retrieve
+            Method: POST
+            Auth:
+              Authorizer: CustomAuthorizer
+        GetSyncSessionStatus:
+          Type: Api
+          Properties:
+            RestApiId: !Ref KnowledgeBaseApi
+            Path: /sync-sessions/{sessionId}
+            Method: GET
+            Auth:
+              Authorizer: CustomAuthorizer
+
+  # Agent Management API
+  AgentManagementApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Auth:
+        Authorizers:
+          CustomAuthorizer:
+            FunctionArn: !GetAtt CustomIsPaidAuthorizerFunction.Arn
+            Identity:
+              Header: Authorization
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+
+  AgentManagementFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      CodeUri: ./functions/agent-management/
+      Timeout: 30
+      Environment:
+        Variables:
+          AGENTS_TABLE: !Ref AgentsTable
+          SHARED_AGENTS_TABLE: !Ref SharedAgentsTable
+          USER_GROUPS_TABLE: !Ref UserGroupsTable
+          USER_POOL_ID: !Ref CognitoUserPool
+          IDENTITY_POOL_ID: !Ref CognitoIdentityPool
+          ALLOWED_ORIGINS: '*'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:Query
+                - dynamodb:Scan
+                - dynamodb:BatchGetItem
+                - dynamodb:BatchWriteItem
+              Resource:
+                - !GetAtt AgentsTable.Arn
+                - !GetAtt SharedAgentsTable.Arn
+                - !GetAtt UserGroupsTable.Arn
+                - !Sub "${UserGroupsTable.Arn}/index/*"
+            - Effect: Allow
+              Action:
+                - 'cognito-idp:AdminGetUser'
+              Resource: !GetAtt CognitoUserPool.Arn
+            # Add KMS permissions
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+                - kms:GenerateDataKey
+                - kms:DescribeKey
+              Resource: !GetAtt KMSKey.Arn
+      Events:
+        # Agent CRUD operations
+        ListAgents:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AgentManagementApi
+            Path: /agents
+            Method: GET
+            Auth:
+              Authorizer: CustomAuthorizer
+        CreateAgent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AgentManagementApi
+            Path: /agents
+            Method: POST
+            Auth:
+              Authorizer: CustomAuthorizer
+        GetAgent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AgentManagementApi
+            Path: /agents/{agentId}
+            Method: GET
+            Auth:
+              Authorizer: CustomAuthorizer
+        UpdateAgent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AgentManagementApi
+            Path: /agents/{agentId}
+            Method: PUT
+            Auth:
+              Authorizer: CustomAuthorizer
+        DeleteAgent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AgentManagementApi
+            Path: /agents/{agentId}
+            Method: DELETE
+            Auth:
+              Authorizer: CustomAuthorizer
+
+  DocumentApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Auth:
+        Authorizers:
+          CustomAuthorizer:
+            FunctionArn: !GetAtt CustomIsPaidAuthorizerFunction.Arn
+            Identity:
+              Header: Authorization
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+
+  # Document conversion function
+  ConvertDocumentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      CodeUri: ./functions/convert_document/
+      Timeout: 900  # Increased timeout as text extraction can take time
+      MemorySize: 2048  # Increased memory for processing larger documents
+      Environment:
+        Variables:
+          ALLOWED_ORIGINS: !Ref AllowedOrigins
+      Events:
+        ConvertEvent:
+          Type: Api
+          Properties:
+            Path: /convert/document
+            Method: POST
+            RestApiId: !Ref DocumentApi
+            Auth:
+              Authorizer: CustomAuthorizer
+
+Outputs:
+  UserManagementApiUrl:
+    Description: URL of the User Management API
+    Value: !Sub https://${UserManagementApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/
+    Export:
+      Name: !Sub ${AWS::StackName}-UserManagementApiUrl
+
+  ProfileApiUrl:
+    Description: URL of the Profile API
+    Value: !Sub https://${ProfileApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/
+    Export:
+      Name: !Sub ${AWS::StackName}-ProfileApiUrl
+
+  GroupManagementApiUrl:
+    Description: URL of the Group Management API
+    Value: !Sub https://${GroupManagementApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/
+    Export:
+      Name: !Sub ${AWS::StackName}-GroupManagementApiUrl
+
+  UserPoolId:
+    Description: ID of the Cognito User Pool
+    Value: !Ref CognitoUserPool
+    Export:
+      Name: !Sub ${AWS::StackName}-UserPoolId
+
+  UserPoolArn:
+    Description: ARN of the Cognito User Pool
+    Value: !GetAtt CognitoUserPool.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-UserPoolArn
+
+  UserPoolClientId:
+    Description: ID of the Cognito User Pool Client
+    Value: !Ref UserPoolClient
+    Export:
+      Name: !Sub ${AWS::StackName}-UserPoolClientId
+
+  IdentityPoolId:
+    Description: ID of the Cognito Identity Pool
+    Value: !Ref CognitoIdentityPool
+    Export:
+      Name: !Sub ${AWS::StackName}-IdentityPoolId
+
+  CognitoDomainName:
+      Description: Cognito Domain Name
+      Value: !Sub ${CognitoDomain}.auth.${AWS::Region}.amazoncognito.com
+
+  BucketName:
+    Description: Name of the S3 bucket
+    Value: !Ref SPABucket
+
+  CloudFrontDistributionId:
+    Description: ID of the CloudFront distribution
+    Value: !Ref SPACloudFrontDistribution
+
+  CloudFrontDomainName:
+    Description: Domain name of the CloudFront distribution
+    Value: !GetAtt SPACloudFrontDistribution.DomainName
+
+  LambdaTriggersSetupCommand:
+    Description: AWS CLI command to set Lambda triggers for Cognito User Pool
+    Value: !If
+      - IsDevOrTestEnvironment
+      - !Sub |
+          aws cognito-idp update-user-pool --user-pool-id ${CognitoUserPool} --lambda-config "PreSignUp=${PreSignupLambda.Arn},PostConfirmation=${PostConfirmationLambda.Arn}" --region ${AWS::Region}
+      - !Sub |
+          aws cognito-idp update-user-pool --user-pool-id ${CognitoUserPool} --lambda-config "PostConfirmation=${PostConfirmationLambda.Arn}" --auto-verified-attributes "email" --region ${AWS::Region}
+      
+  AgentsTableName:
+    Description: Name of the Agents DynamoDB table
+    Value: !Ref AgentsTable
+    Export:
+      Name: !Sub ${AWS::StackName}-AgentsTableName
+
+  AgentsTableArn:
+    Description: ARN of the Agents DynamoDB table
+    Value: !GetAtt AgentsTable.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-AgentsTableArn      
+
+  ConversationsTableName:
+    Description: Name of the Conversations DynamoDB table
+    Value: !Ref ConversationsTable
+
+  GroupsTableName:
+    Description: Name of the Groups DynamoDB table
+    Value: !Ref GroupsTable
+    Export:
+      Name: !Sub ${AWS::StackName}-GroupsTableName
+
+  UserGroupsTableName:
+    Description: Name of the User Groups DynamoDB table
+    Value: !Ref UserGroupsTable
+    Export:
+      Name: !Sub ${AWS::StackName}-UserGroupsTableName
+
+  SharedAgentsTableName:
+    Description: Name of the Shared Agents DynamoDB table
+    Value: !Ref SharedAgentsTable
+    Export:
+      Name: !Sub ${AWS::StackName}-SharedAgentsTableName
+
+  SharedKnowledgeBasesTableName:
+    Description: Name of the Shared Knowledge Bases DynamoDB table
+    Value: !Ref SharedKnowledgeBasesTable
+    Export:
+      Name: !Sub ${AWS::StackName}-SharedKnowledgeBasesTableName
+
+  AttachmentsBucketName:
+    Description: Name of the S3 bucket for attachments
+    Value: !Ref AttachmentsBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-AttachmentsBucketName
+
+  AttachmentsBucketArn:
+    Description: ARN of the S3 bucket for attachments  
+    Value: !GetAtt AttachmentsBucket.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-AttachmentsBucketArn
+
+  KBCollectionId:
+    Description: OpenSearch Collection ID for Knowledge Base
+    Value: !Ref BedrockCollection
+    Export:
+      Name: !Sub ${AWS::StackName}-KBCollectionId
+
+  KBCollectionArn:
+    Description: OpenSearch Collection ARN for Knowledge Base
+    Value: !GetAtt BedrockCollection.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-KBCollectionArn
+
+  BedrockKBRoleArn:
+    Description: ARN of the IAM Role for Bedrock Knowledge Base
+    Value: !GetAtt BedrockKBRole.Arn
+
+  CreateVectorIndexLambdaArn:
+    Description: ARN of the Create Vector Index Lambda function
+    Value: !GetAtt CreateVectorIndexLambda.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-CreateVectorIndexLambdaArn        
+
+  VPCID:
+    Description: VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub ${AWS::StackName}-VPCID
+
+  PublicSubnet1:
+    Description: Public Subnet 1 ID
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicSubnet1
+
+  PublicSubnet2:
+    Description: Public Subnet 2 ID
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicSubnet2
+
+  PrivateSubnet1:
+    Description: Private Subnet 1 ID
+    Value: !Ref PrivateSubnet1
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivateSubnet1
+
+  PrivateSubnet2:
+    Description: Private Subnet 2 ID
+    Value: !Ref PrivateSubnet2
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivateSubnet2
+      
+  SharedResourcesApiUrl:
+    Description: URL of the Shared Resources API
+    Value: !Sub https://${SharedResourcesApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/
+    Export:
+      Name: !Sub ${AWS::StackName}-SharedResourcesApiUrl      
+
+  KnowledgeBaseApiUrl:
+    Description: URL of the Knowledge Base API
+    Value: !Sub https://${KnowledgeBaseApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/
+    Export:
+      Name: !Sub ${AWS::StackName}-KnowledgeBaseApiUrl      
+
+  AgentManagementApiUrl:
+    Description: URL of the Agent Management API
+    Value: !Sub https://${AgentManagementApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/
+    Export:
+      Name: !Sub ${AWS::StackName}-AgentManagementApiUrl      
+
+  DocumentApiUrl:
+    Description: URL of the Document API
+    Value: !Sub https://${DocumentApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/
+    Export:
+      Name: !Sub ${AWS::StackName}-DocumentApiUrl            

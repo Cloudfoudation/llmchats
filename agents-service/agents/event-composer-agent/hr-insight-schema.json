@@ -1,0 +1,221 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "HR Insight Agent API",
+    "description": "API for querying HR data and getting insights about employees, departments, and jobs",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://{api_endpoint}",
+      "variables": {
+        "api_endpoint": {
+          "default": "dw0c69h37c.execute-api.us-west-2.amazonaws.com/dev "
+        }
+      }
+    }
+  ],
+  "paths": {
+    "/search-query": {
+      "post": {
+        "operationId": "searchHRData",
+        "summary": "Search HR database with natural language",
+        "description": "Converts natural language queries into SQL and returns employee, department, or job data",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["prompt"],
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "description": "The natural language query about HR data"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Query results returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "query": {
+                      "type": "string",
+                      "description": "The SQL query that was executed"
+                    },
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      },
+                      "description": "The results of the query"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/initialize-db": {
+      "post": {
+        "operationId": "initializeDatabase",
+        "summary": "Initialize or reset the HR database",
+        "description": "Resets the database and populates it with sample HR data",
+        "responses": {
+          "200": {
+            "description": "Database initialized successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "statistics": {
+                      "type": "object",
+                      "properties": {
+                        "departments": {
+                          "type": "integer"
+                        },
+                        "jobs": {
+                          "type": "integer"
+                        },
+                        "employees": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/hr-insights": {
+      "post": {
+        "operationId": "getHRInsights",
+        "summary": "Get advanced insights about HR data",
+        "description": "Generates advanced insights and analytics about the HR data",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["query_type"],
+                "properties": {
+                  "query_type": {
+                    "type": "string",
+                    "enum": [
+                      "salary_distribution",
+                      "department_headcount",
+                      "tenure_analysis",
+                      "hiring_trends",
+                      "custom"
+                    ],
+                    "description": "The type of HR insight to generate"
+                  },
+                  "custom_query": {
+                    "type": "string",
+                    "description": "Custom query description for deeper insights (optional)"
+                  },
+                  "filters": {
+                    "type": "object",
+                    "description": "Optional filters to apply to the insights",
+                    "properties": {
+                      "department": {
+                        "type": "string"
+                      },
+                      "date_range": {
+                        "type": "object",
+                        "properties": {
+                          "start_date": {
+                            "type": "string",
+                            "format": "date"
+                          },
+                          "end_date": {
+                            "type": "string",
+                            "format": "date"
+                          }
+                        }
+                      },
+                      "salary_range": {
+                        "type": "object",
+                        "properties": {
+                          "min": {
+                            "type": "number"
+                          },
+                          "max": {
+                            "type": "number"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "HR insights generated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "insight_type": {
+                      "type": "string"
+                    },
+                    "results": {
+                      "type": "object"
+                    },
+                    "summary": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ]
+}

@@ -1,0 +1,767 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Virtual Editor Backend with Bedrock HTTPS Streaming
+
+Globals:
+  Function:
+    Timeout: 900
+    MemorySize: 1024
+    Runtime: python3.10
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+
+  CertificateArn:
+    Type: String
+    Description: ARN of the SSL/TLS certificate for HTTPS
+    
+  InfrastructureStackName:
+    Type: String
+    Description: Name of the infrastructure stack to import resources from
+
+  InfrastructureStackName:
+    Type: String
+    Description: Name of the infrastructure stack to import resources from
+
+  AllowedOrigins:
+    Type: String
+    Default: '*'
+    Description: Comma-separated list of allowed origins for CORS
+
+  TavilyApiKey:
+    Type: String
+    Description: API Key for Tavily search service
+    NoEcho: true
+  
+  EventMediaStorageBucket:
+    Type: String
+    Description: Name of the bucket in us-east-1 for storing event media files
+    
+  ApiBaseURL:
+    Type: String
+
+Resources:
+
+  ApiKeysTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-api-keys
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: apiKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: id
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: ApiKeyIndex
+          KeySchema:
+            - AttributeName: apiKey
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  ResearchTasksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-research-tasks-v2
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: task_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: task_id
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  ResearchStorageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-research-storage-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireObjects
+            Status: Enabled
+            ExpirationInDays: 30
+
+  EventComposerTasksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-event-composer-tasks
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: task_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: N
+        - AttributeName: userStatus
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: task_id
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: UserCreatedAtIndex
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: UserStatusCreatedAtIndex
+          KeySchema:
+            - AttributeName: userStatus
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  ApiGatewayApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Auth:
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: 
+              Fn::ImportValue: !Sub ${InfrastructureStackName}-UserPoolArn
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+
+  ApiKeysLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.lambda_handler
+      CodeUri: ./functions/api-keys/
+      Role: !GetAtt ApiKeysLambdaRole.Arn
+      Environment:
+        Variables:
+          API_KEYS_TABLE: !Ref ApiKeysTable
+          ALLOWED_ORIGINS: !Ref AllowedOrigins
+      Events:
+        CreateApiKey:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /api-keys
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+        ListApiKeys:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /api-keys
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+        DeleteApiKey:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /api-keys/{id}
+            Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer
+        OptionsApiKeys:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /api-keys
+            Method: OPTIONS
+        OptionsApiKeysWithId:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /api-keys/{id}
+            Method: OPTIONS
+
+  ApiKeysLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                Resource: !GetAtt ApiKeysTable.Arn
+
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${AWS::StackName}-BedrockCluster
+      CapacityProviders:
+        - FARGATE
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: FARGATE
+          Weight: 1
+
+  BedrockTaskDefinition:
+    Type: AWS::ECS::TaskDefinition 
+    Properties:
+      Family: bedrock-app
+      Cpu: "512"
+      Memory: "1024"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      TaskRoleArn: !Ref ECSTaskRole
+      ContainerDefinitions:
+        - Name: bedrock-app
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/bedrock-app:latest
+          PortMappings:
+            - ContainerPort: 8000
+          Environment:
+            - Name: USER_POOL_ID
+              Value: 
+                Fn::ImportValue: !Sub ${InfrastructureStackName}-UserPoolId
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: AWS_ACCOUNT_ID
+              Value: !Ref AWS::AccountId
+            - Name: IDENTITY_POOL_ID
+              Value:
+                Fn::ImportValue: !Sub ${InfrastructureStackName}-IdentityPoolId
+            - Name: USER_POOL_CLIENT_ID
+              Value:
+                Fn::ImportValue: !Sub ${InfrastructureStackName}-UserPoolClientId
+            - Name: ATTACHMENTS_BUCKET
+              Value:
+                Fn::ImportValue: !Sub ${InfrastructureStackName}-AttachmentsBucketName
+            - Name: AWS_BEDROCK_REGION
+              Value: 'us-west-2'
+            - Name: AGENTS_TABLE
+              Value:
+                Fn::ImportValue: !Sub ${InfrastructureStackName}-AgentsTableName
+            - Name: API_KEYS_TABLE
+              Value: !Ref ApiKeysTable
+            - Name: RESEARCH_TASKS_TABLE
+              Value: !Ref ResearchTasksTable
+            - Name: RESEARCH_STORAGE_BUCKET
+              Value: !Ref ResearchStorageBucket
+            - Name: TMP_DIR
+              Value: '/tmp'
+            - Name: TAVILY_API_KEY
+              Value: !Ref TavilyApiKey
+
+            - Name: EVENT_TASKS_TABLE
+              Value: !Ref EventComposerTasksTable
+            - Name: EVENT_MEDIA_STORAGE_BUCKET
+              Value: !Ref EventMediaStorageBucket
+
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref CloudWatchLogsGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs-bedrock
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ECS tasks
+      VpcId:
+        Fn::ImportValue: !Sub ${InfrastructureStackName}-VPCID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS outbound for AWS API calls
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP outbound for package downloads
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ALB
+      VpcId:
+        Fn::ImportValue: !Sub ${InfrastructureStackName}-VPCID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          SourceSecurityGroupId: !Ref ECSSecurityGroup
+          Description: Forward to ECS tasks
+
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: "60"
+      Subnets:
+        - Fn::ImportValue: !Sub ${InfrastructureStackName}-PublicSubnet1
+        - Fn::ImportValue: !Sub ${InfrastructureStackName}-PublicSubnet2
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+      LoadBalancerArn: !Ref ALB
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckPath: /health
+      Name: !Sub ${AWS::StackName}-BedrockTG
+      Port: 8000
+      Protocol: HTTP
+      TargetType: ip
+      VpcId:
+        Fn::ImportValue: !Sub ${InfrastructureStackName}-VPCID
+
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModelWithResponseStream
+                  - bedrock:InvokeModel
+                  - bedrock:GetFoundationModel
+                Resource: 
+                  - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/*"
+              - Effect: Allow
+                Action:
+                  - bedrock:Retrieve
+                  - bedrock:RetrieveAndGenerate
+                  - bedrock:ListKnowledgeBases
+                Resource: 
+                  - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*"
+              - Effect: Allow
+                Action:
+                  - bedrock:CreateAsyncInvoke
+                  - bedrock:GetAsyncInvoke
+                Resource: 
+                  - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:async-invoke/*"
+              - Effect: Allow
+                Action:
+                  - sagemaker:InvokeEndpoint
+                  - sagemaker:InvokeEndpointAsync
+                Resource: 
+                  - !Sub "arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/*"
+        - PolicyName: ECSTaskRolePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - Fn::ImportValue: !Sub ${InfrastructureStackName}-AgentsTableArn
+                  - !GetAtt ResearchTasksTable.Arn                  
+                  - !GetAtt EventComposerTasksTable.Arn
+                  - !Sub "${EventComposerTasksTable.Arn}/index/UserCreatedAtIndex"
+                  - !Sub "${EventComposerTasksTable.Arn}/index/UserStatusCreatedAtIndex"                  
+              - Effect: Allow
+                Action:
+                  - dynamodb:CreateTable
+                  - dynamodb:DescribeTable
+                Resource:
+                  - !GetAtt ResearchTasksTable.Arn
+                  - !GetAtt EventComposerTasksTable.Arn
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModelWithResponseStream
+                  - bedrock:InvokeModel
+                Resource: 
+                  - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/*"
+              - Effect: Allow
+                Action:
+                  - bedrock:CreateAsyncInvoke
+                  - bedrock:GetAsyncInvoke
+                Resource: 
+                  - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:async-invoke/*"
+              - Effect: Allow
+                Action: 
+                  - aoss:APIAccessAll
+                  - aoss:DashboardsAccessAll
+                  - aoss:DataAccess
+                Resource:
+                  Fn::ImportValue: !Sub ${InfrastructureStackName}-KBCollectionArn
+              - Effect: Allow
+                Action:
+                  - cognito-idp:AdminListGroupsForUser
+                  - cognito-idp:GetUser
+                  - cognito-idp:ListUsers
+                Resource:
+                  Fn::ImportValue: !Sub ${InfrastructureStackName}-UserPoolArn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - Fn::ImportValue: !Sub ${InfrastructureStackName}-AttachmentsBucketArn
+                  - !Sub 
+                    - '${BucketArn}/*'
+                    - BucketArn:
+                        Fn::ImportValue: !Sub ${InfrastructureStackName}-AttachmentsBucketArn
+                  - !GetAtt ResearchStorageBucket.Arn
+                  - !Sub '${ResearchStorageBucket.Arn}/*'
+                  - !Sub 'arn:aws:s3:::${EventMediaStorageBucket}'
+                  - !Sub 'arn:aws:s3:::${EventMediaStorageBucket}/*'
+              - Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:HeadBucket
+                  - s3:PutBucketLifecycleConfiguration
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt ResearchStorageBucket.Arn
+                  - !Sub '${ResearchStorageBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource:
+                  - Fn::ImportValue: !Sub ${InfrastructureStackName}-AgentsTableArn
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:GetItem
+                Resource:
+                  - !GetAtt ApiKeysTable.Arn
+                  - !Sub "${ApiKeysTable.Arn}/index/ApiKeyIndex"
+
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  BedrockService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - ALBListener
+    Properties:
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref BedrockTaskDefinition
+      DesiredCount: 2
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - Fn::ImportValue: !Sub ${InfrastructureStackName}-PrivateSubnet1
+            - Fn::ImportValue: !Sub ${InfrastructureStackName}-PrivateSubnet2
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+      LoadBalancers:
+        - ContainerName: bedrock-app
+          ContainerPort: 8000
+          TargetGroupArn: !Ref ALBTargetGroup
+
+  CloudWatchLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/${AWS::StackName}
+      RetentionInDays: 14
+
+  # Generate a secure random token for internal service authentication
+  InternalAuthTokenSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "${AWS::StackName}/internal-auth-token"
+      Description: "Token for internal service authentication"
+      GenerateSecretString:
+        SecretStringTemplate: '{}'
+        GenerateStringKey: "token"
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\\'
+
+  # Role for the Bedrock Agent itself (used by the Bedrock service)
+  BedrockAgentServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BedrockAgentServicePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt EventComposerAgentLambda.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "${DeploymentBucket.Arn}/*"
+        - PolicyName: BedRockEventComposerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: 
+                  - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/*"
+
+  # Role for the Lambda function (used when the Lambda executes)
+  EventComposerAgentLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BedRockEventComposerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: 
+                  - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/*"
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref InternalAuthTokenSecret
+
+  # Lambda function for the Bedrock Agent action group
+  EventComposerAgentLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.lambda_handler
+      CodeUri: ./functions/event-composer-agent/
+      Role: !GetAtt EventComposerAgentLambdaRole.Arn  # Using the Lambda role
+      Environment:
+        Variables:
+          API_BASE_URL: !Ref ApiBaseURL
+          INTERNAL_AUTH_TOKEN_SECRET: !Ref InternalAuthTokenSecret
+      Timeout: 60
+
+  EventComposerAgentLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EventComposerAgentLambda
+      Action: lambda:InvokeFunction
+      Principal: bedrock.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  # Bedrock Agent for Event Composer
+  # EventComposerAgent:
+  #   Type: AWS::Bedrock::Agent
+  #   DependsOn: EventComposerAgentLambda
+  #   Properties:
+  #     AgentName: !Sub "${AWS::StackName}-EventComposerAgent"
+  #     AgentResourceRoleArn: !GetAtt BedrockAgentServiceRole.Arn
+  #     FoundationModel: anthropic.claude-3-7-sonnet-20250219-v1:0
+  #     Instruction: >
+  #       You are an Event Composer Assistant that helps users create professional announcements for their events along with short videos that can be shared on social media. 
+  #       When users want to create an event announcement, ask for the event name (required), date/time (optional), location (optional), and preferred tone (Lively or Formal).
+        
+  #       Guide the user through the process step by step:
+  #       1. Collect event details to start a composition task
+  #       2. Assist with refining the announcement text through chat
+  #       3. When the user is satisfied, accept the announcement and generate video prompts
+  #       4. Generate actual videos based on the prompts
+  #       5. Provide the user with links to the completed videos
+        
+  #       If asked about capabilities, explain that you can create engaging email announcements and also generate short 5-9 second videos that capture the spirit of the event.
+  #       Always be helpful, professional and enthusiastic about creating great event materials.
+  #     ActionGroups:
+  #       - ActionGroupName: EventComposerAPI
+  #         ActionGroupExecutor:
+  #           Lambda: !GetAtt EventComposerAgentLambda.Arn
+  #         ActionGroupState: ENABLED
+  #         ApiSchema:
+  #           S3: 
+  #             S3BucketName: !Ref DeploymentBucket
+  #             S3ObjectKey: schema.json
+  #         Description: API for creating event announcements and videos
+
+  # Configure the agent to use inline knowledge bases (no external KB needed for this agent)
+  # EventComposerAgentAliasConfiguration:
+  #   Type: AWS::Bedrock::AgentAlias
+  #   Properties:
+  #     AgentId: !Ref EventComposerAgent
+  #     AgentAliasName: TSTALIASID
+  #     RoutingConfiguration:
+  #       - AgentVersion: DRAFT
+
+  # Helper bucket for agent deployment
+  DeploymentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            ExpirationInDays: 30
+
+Outputs:
+  ALBDNSName:
+    Description: "ALB DNS Name"
+    Value: !GetAtt ALB.DNSName
+    Export:
+      Name: !Sub "${AWS::StackName}-ALBDNSName"
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${ApiGatewayApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+    Export:
+      Name: !Sub ${AWS::StackName}-ApiEndpoint
+  ResearchTasksTableName:
+    Description: DynamoDB table for research tasks
+    Value: !Ref ResearchTasksTable
+    Export:
+      Name: !Sub ${AWS::StackName}-ResearchTasksTableName
+  ResearchTasksTableArn:
+    Description: ARN for research tasks DynamoDB table
+    Value: !GetAtt ResearchTasksTable.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-ResearchTasksTableArn
+  ResearchStorageBucketName:
+    Description: S3 bucket for research storage
+    Value: !Ref ResearchStorageBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-ResearchStorageBucketName
+  ResearchStorageBucketArn:
+    Description: ARN for research storage S3 bucket
+    Value: !GetAtt ResearchStorageBucket.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-ResearchStorageBucketArn
+  EventComposerTasksTableName:
+    Description: DynamoDB table for event composer tasks
+    Value: !Ref EventComposerTasksTable
+
+  DeploymentBucketName:
+    Description: S3 bucket for deployment agent
+    Value: !Ref DeploymentBucket

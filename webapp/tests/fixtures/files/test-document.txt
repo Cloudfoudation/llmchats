@@ -1,0 +1,11 @@
+This is a test document for E2E testing.
+
+It contains sample content that can be used to test file upload functionality in the knowledge base system.
+
+Key features to test:
+- File upload
+- File processing
+- Content extraction
+- Search functionality
+
+This document should be processed correctly by the system.

@@ -1,0 +1,12 @@
+{
+  "Parameters": {
+    "Environment": "test",
+    "BucketName": "legaia-test-spa-bucket-2025",
+    "GoogleClientId": "your-test-google-client-id",
+    "GoogleClientSecret": "your-test-google-client-secret",
+    "AdminEmail": "admin@testbackend.com",
+    "YourDomain": "http://localhost:3030",
+    "BDABucket": "legaia-test-bda-bucket-2025",
+    "AllowedOrigins": "http://localhost:3030,http://localhost:3000"
+  }
+}

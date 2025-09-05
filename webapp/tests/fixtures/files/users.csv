@@ -1,0 +1,4 @@
+email,firstName,lastName,role
+test1@example.com,Test,User1,paid
+test2@example.com,Test,User2,free
+test3@example.com,Test,User3,paid

@@ -1,0 +1,42 @@
+LEGAIA Test Document
+
+This is a test document used for automation testing of the LEGAIA Bedrock Chat application.
+
+Content Overview:
+- This document contains sample text for testing file upload functionality
+- It includes various types of content to test document processing
+- The document is designed to be used in automated test scenarios
+
+Key Features to Test:
+1. File upload and processing
+2. Document analysis capabilities
+3. Knowledge base integration
+4. Content extraction and indexing
+
+Sample Data:
+- Product Name: LEGAIA Bedrock Chat
+- Version: 1.0.0
+- Environment: Test
+- Date: 2024-01-01
+
+Technical Specifications:
+- File Format: Plain Text
+- Encoding: UTF-8
+- Size: Small (for quick testing)
+- Content Type: Mixed (text, numbers, special characters)
+
+Test Scenarios:
+This document should be used to verify:
+✓ Successful file upload
+✓ Document content extraction
+✓ Search functionality within uploaded documents
+✓ Knowledge base question answering
+✓ Document metadata handling
+
+Special Characters Test:
+- Unicode: café, naïve, résumé
+- Symbols: @#$%^&*()_+-=[]{}|;:'"<>?
+- Numbers: 123456789
+- Mixed: Test123!@#
+
+End of Test Document

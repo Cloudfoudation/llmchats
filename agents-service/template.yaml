@@ -1,0 +1,666 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Virtual Editor Backend with Bedrock HTTPS Streaming
+
+Globals:
+  Function:
+    Timeout: 900
+    MemorySize: 1024
+    Runtime: python3.10
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod    
+    
+  ApiBaseURL:
+    Type: String
+
+  AllowedOrigins:
+    Type: String
+    Default: '*'
+    Description: Comma-separated list of allowed origins for CORS
+
+Resources:
+  # VPC and Networking
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-vpc
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-igw
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Public Subnets
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-public-subnet-1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-public-subnet-2
+
+  # Private Subnets
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.0.3.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-private-subnet-1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: 10.0.4.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-private-subnet-2
+
+  # Public Route Table
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-public-rt
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  NATGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATGatewayEIP1.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-nat-gw-1
+
+  NATGatewayEIP1:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-private-rt-1
+
+  PrivateRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway1
+
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-private-rt-2
+
+  PrivateRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway1
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable1
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable2
+
+  # RDS Subnet Group
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS database
+      SubnetIds: 
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+
+  # RDS Security Group
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RDS database
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup
+          Description: Allow Lambda access to database
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 127.0.0.1/32
+          Description: Deny all outbound traffic (placeholder rule)
+
+  # RDS Instance
+  PostgresDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBName: postgres
+      Engine: postgres
+      MasterUsername: !Sub '{{resolve:secretsmanager:${PostgresDBSecret}:SecretString:username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${PostgresDBSecret}:SecretString:password}}'
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: 20
+      MaxAllocatedStorage: 100
+      PubliclyAccessible: false
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups: 
+        - !Ref DBSecurityGroup
+      BackupRetentionPeriod: 7
+      DeleteAutomatedBackups: true
+      StorageEncrypted: true
+      KmsKeyId: alias/aws/rds
+      DeletionProtection: true
+
+  # Secrets Manager for DB credentials
+  PostgresDBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${AWS::StackName}-db-credentials
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "postgres"}'
+        GenerateStringKey: "password"
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\'
+
+  # VPC Endpoint for Secrets Manager
+  SecretsManagerVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.secretsmanager
+      VpcId: !Ref VPC
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      VpcEndpointType: Interface
+      SecurityGroupIds:
+        - !Ref VPCEndpointSecurityGroup
+      PrivateDnsEnabled: true
+
+  VPCEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for VPC Endpoints
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup
+          Description: Allow Lambda access to VPC endpoints
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 127.0.0.1/32
+          Description: Deny all outbound traffic (placeholder rule)
+
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      # Auth:
+      #   Authorizers:
+      #     CognitoAuthorizer:
+      #       UserPoolArn: !GetAtt CognitoUserPool.Arn
+      #       Identity:
+      #         Headers:
+      #           - Authorization
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+
+  # Lambda Functions
+  InitializeDBFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./functions/initialize_db/
+      Handler: app.lambda_handler
+      Runtime: python3.10
+      Timeout: 300  # 5 minutes
+      MemorySize: 256
+      Environment:
+        Variables:
+          DB_HOST: !GetAtt PostgresDB.Endpoint.Address
+          DB_PORT: !GetAtt PostgresDB.Endpoint.Port
+          DB_NAME: postgres
+          DB_USER: postgres
+          DB_PASSWORD: !Sub '{{resolve:secretsmanager:${PostgresDBSecret}:SecretString:password}}'
+          ALLOWED_ORIGINS: !Ref AllowedOrigins
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /initialize-db
+            Method: POST
+            RestApiId: !Ref ApiGateway
+      #       Auth:
+      #         Authorizer: CognitoAuthorizer
+
+  SearchQueryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./functions/search_query/
+      Handler: app.lambda_handler
+      Runtime: python3.10
+      Timeout: 300
+      MemorySize: 512
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: '*'
+      Environment:
+        Variables:
+          DB_HOST: !GetAtt PostgresDB.Endpoint.Address
+          DB_PORT: !GetAtt PostgresDB.Endpoint.Port
+          DB_NAME: postgres
+          DB_USER: postgres
+          DB_PASSWORD: !Sub '{{resolve:secretsmanager:${PostgresDBSecret}:SecretString:password}}'
+          ALLOWED_ORIGINS: !Ref AllowedOrigins
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /search-query
+            Method: POST
+            RestApiId: !Ref ApiGateway
+      #       Auth:
+      #         Authorizer: CognitoAuthorizer
+
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Lambda functions
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          DestinationSecurityGroupId: !Ref DBSecurityGroup
+          Description: Database access
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          DestinationSecurityGroupId: !Ref VPCEndpointSecurityGroup
+          Description: VPC endpoint access
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS outbound for AWS services
+
+  # Generate a secure random token for internal service authentication
+  InternalAuthTokenSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "${AWS::StackName}/internal-auth-token"
+      Description: "Token for internal service authentication"
+      GenerateSecretString:
+        SecretStringTemplate: '{}'
+        GenerateStringKey: "token"
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\\'
+
+  # Role for the Bedrock Agent itself (used by the Bedrock service)
+  BedrockAgentServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BedrockAgentServicePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: 
+                  - !GetAtt EventComposerAgentLambda.Arn
+                  - !GetAtt HRInsightAgentLambda.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "${DeploymentBucket.Arn}/*"
+        - PolicyName: BedRockEventComposerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: '*'
+
+  # Role for the Lambda function (used when the Lambda executes)
+  EventComposerAgentLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BedRockEventComposerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: '*'
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref InternalAuthTokenSecret
+
+  # Lambda function for the Bedrock Agent action group
+  EventComposerAgentLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.lambda_handler
+      CodeUri: ./functions/event-composer-agent/
+      Role: !GetAtt EventComposerAgentLambdaRole.Arn  # Using the Lambda role
+      Environment:
+        Variables:
+          API_BASE_URL: !Ref ApiBaseURL
+          INTERNAL_AUTH_TOKEN_SECRET: !Ref InternalAuthTokenSecret
+      Timeout: 60
+
+  EventComposerAgentLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EventComposerAgentLambda
+      Action: lambda:InvokeFunction
+      Principal: bedrock.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  # Bedrock Agent for Event Composer
+  EventComposerAgent:
+    Type: AWS::Bedrock::Agent
+    DependsOn: EventComposerAgentLambda
+    Properties:
+      AgentName: !Sub "${AWS::StackName}-EventComposerAgent"
+      AgentResourceRoleArn: !GetAtt BedrockAgentServiceRole.Arn
+      FoundationModel: anthropic.claude-3-5-sonnet-20241022-v2:0
+      Instruction: >
+        You are an Event Composer Assistant that helps users create professional announcements for their events along with short videos that can be shared on social media. 
+        When users want to create an event announcement, ask for the event name (required), date/time (optional), location (optional), and preferred tone (Lively or Formal).
+        
+        Guide the user through the process step by step:
+        1. Collect event details to start a composition task
+        2. Assist with refining the announcement text through chat
+        3. When the user is satisfied, accept the announcement and generate video prompts
+        4. Generate actual videos based on the prompts
+        5. Provide the user with links to the completed videos
+        
+        If asked about capabilities, explain that you can create engaging email announcements and also generate short 5-9 second videos that capture the spirit of the event.
+        Always be helpful, professional and enthusiastic about creating great event materials.
+      ActionGroups:
+        - ActionGroupName: EventComposerAPI
+          ActionGroupExecutor:
+            Lambda: !GetAtt EventComposerAgentLambda.Arn
+          ActionGroupState: ENABLED
+          ApiSchema:
+            S3: 
+              S3BucketName: !Ref DeploymentBucket
+              S3ObjectKey: schema.json
+          Description: API for creating event announcements and videos
+
+  # Configure the agent to use inline knowledge bases (no external KB needed for this agent)
+  EventComposerAgentAliasConfiguration:
+    Type: AWS::Bedrock::AgentAlias
+    Properties:
+      AgentId: !GetAtt EventComposerAgent.AgentId
+      AgentAliasName: !Sub "EventComposerAgent-${Environment}-v2"
+      Description: !Sub "EventComposerAgent ${Environment}"
+
+  # HR Insight Agent Lambda Role
+  HRInsightAgentLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BedRockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: '*'
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref InternalAuthTokenSecret
+
+  # Lambda function for the HR Insight Agent
+  HRInsightAgentLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.lambda_handler
+      CodeUri: ./functions/hr-insight-agent/
+      Role: !GetAtt HRInsightAgentLambdaRole.Arn
+      Environment:
+        Variables:
+          API_BASE_URL: !Sub "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+          INTERNAL_AUTH_TOKEN_SECRET: !Ref InternalAuthTokenSecret
+      Timeout: 60
+
+  HRInsightAgentLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref HRInsightAgentLambda
+      Action: lambda:InvokeFunction
+      Principal: bedrock.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  # Bedrock Agent for HR Insight
+  HRInsightAgent:
+    Type: AWS::Bedrock::Agent
+    DependsOn: HRInsightAgentLambda
+    Properties:
+      AgentName: !Sub "${AWS::StackName}-HRInsightAgent"
+      AgentResourceRoleArn: !GetAtt BedrockAgentServiceRole.Arn
+      FoundationModel: anthropic.claude-3-5-sonnet-20241022-v2:0
+      Instruction: >
+        You are the HR Insight Assistant, an expert AI designed to help HR professionals and managers analyze and understand their workforce data.
+        
+        Your capabilities include:
+        1. Searching and querying the employee database using natural language
+        2. Generating advanced HR insights such as salary distributions, department headcount, tenure analysis, and hiring trends
+        3. Providing actionable recommendations based on the HR data
+        4. Creating visualizations and charts using HTML/JavaScript when users request visual representation of data
+        
+        When users ask questions about employee data, you should:
+        - First understand if they need raw data or analytical insights
+        - For simple data queries, use the search-query API with their natural language prompt
+        - For deeper analytical questions, use the hr-insights API with the appropriate query_type
+        - When asked to create charts or visualizations, generate HTML code using chart.js or D3.js that can be rendered in a browser
+        - Always explain insights in a clear, business-focused way
+        
+        The database contains information about employees, jobs, and departments, including:
+        - Employee details: names, salaries, hire dates
+        - Job information: job titles, descriptions
+        - Department information: department names, descriptions
+        
+        For chart creation:
+        - When users ask for charts, first retrieve the necessary data using appropriate API calls
+        - Then generate complete, self-contained HTML code with embedded chart.js or D3.js that visualizes the requested data
+        - For bar charts, pie charts, line charts, etc., choose the visualization type that best represents the data
+        - Include appropriate titles, labels, and color schemes in the visualizations
+        
+        If users need to reset or initialize the database with sample data, you can do that for them.
+        Always maintain a professional, helpful demeanor and respect data privacy considerations.
+      ActionGroups:
+        - ActionGroupName: HRInsightAPI
+          ActionGroupExecutor:
+            Lambda: !GetAtt HRInsightAgentLambda.Arn
+          ActionGroupState: ENABLED
+          ApiSchema:
+            S3: 
+              S3BucketName: !Ref DeploymentBucket
+              S3ObjectKey: hr-insight-schema.json
+          Description: API for querying HR data and generating insights
+
+  # Configure alias for the HR Insight agent
+  HRInsightAgentAliasConfiguration:
+    Type: AWS::Bedrock::AgentAlias
+    Properties:
+      AgentId: !GetAtt HRInsightAgent.AgentId
+      AgentAliasName: !Sub "HRInsightAgent-${Environment}-v2"
+      Description: !Sub "HRInsightAgent ${Environment}"
+
+  # Helper bucket for agent deployment
+  DeploymentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            ExpirationInDays: 30
+
+Outputs:
+  DeploymentBucketName:
+    Description: S3 bucket for deployment agent
+    Value: !Ref DeploymentBucket
+
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+
+  HRInsightAgentId:
+    Description: HR Insight Agent ID
+    Value: !GetAtt HRInsightAgent.AgentId
+
+  HRInsightAgentAlias:
+    Description: HR Insight Agent Alias
+    Value: !Ref HRInsightAgentAliasConfiguration

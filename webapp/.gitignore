@@ -1,0 +1,17 @@
+node_modules
+yarn.lock
+.next
+out
+out_v*
+.aws-sam
+samconfig*.toml
+package-lock.json
+internal.md
+public/workbox-*
+public/sw.js
+.env.development*
+.env.production*
+public/sw.js.map
+playwright-report
+test-results
+.env.test
