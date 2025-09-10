@@ -1,0 +1,30 @@
+[
+  {
+    "ParameterKey": "BucketName",
+    "ParameterValue": "legaia-spa-1725951796"
+  },
+  {
+    "ParameterKey": "GoogleClientId",
+    "ParameterValue": "your-google-client-id.apps.googleusercontent.com"
+  },
+  {
+    "ParameterKey": "GoogleClientSecret",
+    "ParameterValue": "GOCSPX-your-google-client-secret"
+  },
+  {
+    "ParameterKey": "AdminEmail",
+    "ParameterValue": "anthony.basang@ecloudvalley.com"
+  },
+  {
+    "ParameterKey": "BDABucket",
+    "ParameterValue": "bedrock-bda-us-east-1-1725951796"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "YourDomain",
+    "ParameterValue": "http://localhost:3000"
+  }
+]

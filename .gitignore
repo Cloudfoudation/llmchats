@@ -12,3 +12,4 @@ public/sw.js
 .env.production
 .env.production.sg
 .env.test*
+.env.local

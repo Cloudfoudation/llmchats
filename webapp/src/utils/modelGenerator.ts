@@ -23,8 +23,8 @@ export function generateModels(): ModelOption[] {
 
     // Initialize all model generators
     const generators = [
-        new AnthropicModelGenerator(),
-        new StabilityAIModelGenerator(),
+        // new AnthropicModelGenerator(),
+        // new StabilityAIModelGenerator(),
         new AmazonTitanModelGenerator(),
         new MetaLlamaModelGenerator(),
         new DeepSeekModelGenerator(),
