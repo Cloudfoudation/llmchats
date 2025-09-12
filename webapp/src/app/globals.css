@@ -105,7 +105,50 @@
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+}
+
+/* Custom animations */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+/* Scrollbar styling */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(203 213 225) transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: rgb(203 213 225);
+  border-radius: 3px;
+}
+
+.dark .scrollbar-thin {
+  scrollbar-color: rgb(75 85 99) transparent;
+}
+
+.dark .scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: rgb(75 85 99);
 }
 
 pre {
@@ -176,164 +219,67 @@ pre {
   }
   
 
-.message {
-    padding: 1rem;
-    border-radius: 0.5rem;
-    margin-bottom: 1rem;
+/* Message content styling */
+.message-content {
+  @apply prose prose-sm max-w-none;
 }
 
-.message-user {
-    background-color: rgb(224 242 254);
-    margin-left: 50px;
-    border-bottom-right-radius: 4px;
+.message-content pre {
+  @apply bg-gray-900 text-gray-100 rounded-lg p-4 overflow-x-auto;
 }
 
-.dark .message-user {
-    background-color: rgb(30 58 138);
+.message-content code {
+  @apply bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-sm;
 }
 
-.message-assistant {
-    background-color: rgb(243 244 246);
-    margin-right: 50px;
+.message-content pre code {
+  @apply bg-transparent p-0;
 }
 
-.dark .message-assistant {
-    background-color: rgb(31 41 55);
+.message-content blockquote {
+  @apply border-l-4 border-gray-300 dark:border-gray-600 pl-4 italic;
 }
 
-/* Markdown styles */
-.message-assistant pre {
-    margin: 1rem 0;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    background-color: rgb(31 41 55); /* gray-800 */
-    overflow-x: auto;
+.message-content table {
+  @apply w-full border-collapse;
 }
 
-.message-assistant code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    font-size: 0.875rem;
+.message-content th,
+.message-content td {
+  @apply border border-gray-300 dark:border-gray-600 px-3 py-2 text-left;
 }
 
-.message-assistant p {
-    margin-bottom: 1rem;
+.message-content th {
+  @apply bg-gray-100 dark:bg-gray-800 font-semibold;
 }
 
-.message-assistant ul,
-.message-assistant ol {
-    margin-left: 1.5rem;
-    margin-bottom: 1rem;
+/* Loading dots animation */
+@keyframes loading-dots {
+  0%, 20% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  80%, 100% {
+    opacity: 0;
+  }
 }
 
-.message-assistant ul {
-    list-style-type: disc;
+.loading-dots span {
+  animation: loading-dots 1.4s infinite ease-in-out;
 }
 
-.message-assistant ol {
-    list-style-type: decimal;
+.loading-dots span:nth-child(1) {
+  animation-delay: -0.32s;
 }
 
-.message-assistant h1,
-.message-assistant h2,
-.message-assistant h3,
-.message-assistant h4 {
-    font-weight: bold;
-    margin-bottom: 1rem;
+.loading-dots span:nth-child(2) {
+  animation-delay: -0.16s;
 }
 
-.message-assistant h1 {
-    font-size: 1.5rem;
-}
-
-.message-assistant h2 {
-    font-size: 1.25rem;
-}
-
-.message-assistant h3 {
-    font-size: 1.125rem;
-}
-
-/* Code block styles */
-.message-assistant pre code {
-    background-color: transparent;
-    padding: 0;
-    font-size: 0.875rem;
-    line-height: 1.5;
-    color: #e5e7eb;
-}
-
-/* Inline code styles */
-.message-assistant :not(pre) > code {
-    background-color: rgba(0, 0, 0, 0.1);
-    padding: 0.2em 0.4em;
-    border-radius: 3px;
-    font-size: 0.9em;
-}
-
-.dark .message-assistant :not(pre) > code {
-    background-color: rgba(255, 255, 255, 0.1);
-}
-
-/* Table styles */
-.message-assistant table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-bottom: 1rem;
-}
-
-.message-assistant th,
-.message-assistant td {
-    border: 1px solid #e5e7eb;
-    padding: 0.5rem 1rem;
-    text-align: left;
-}
-
-.message-assistant th {
-    background-color: #f3f4f6;
-}
-
-.dark .message-assistant th {
-    background-color: #374151;
-}
-
-.dark .message-assistant th,
-.dark .message-assistant td {
-    border-color: #4b5563;
-}
-
-/* Link styles */
-.message-assistant a {
-    color: #2563eb;
-    text-decoration: underline;
-}
-
-.message-assistant a:hover {
-    color: #1d4ed8;
-}
-
-/* Blockquote styles */
-.message-assistant blockquote {
-    border-left: 4px solid #e5e7eb;
-    padding-left: 1rem;
-    margin-left: 0;
-    margin-right: 0;
-    font-style: italic;
-    color: #6b7280;
-}
-
-@media (max-width: 640px) {
-    .message {
-        padding: 0.5rem;
-    }
-    
-    /* Remove side margins on mobile */
-    .message-user {
-        margin-left: 10px;
-    }
-    
-    .message-assistant {
-        margin-right: 10px;
-    }
+.loading-dots span:nth-child(3) {
+  animation-delay: 0s;
 }
 
 /* Add this to your global CSS if needed */

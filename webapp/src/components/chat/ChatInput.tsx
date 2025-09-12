@@ -5,8 +5,8 @@ import { useEffect } from 'react';
 import { credentialsDB } from '../../utils/db';
 import { ModelOption, CategoryType, ModelParams } from '@/types/models'
 import { AgentSelector } from './AgentSelector';
-import { IconRobot, IconFileText, IconFile, IconFileWord, IconFileTypography } from '@tabler/icons-react';
-import { IconUpload, IconX, IconSettings, IconChevronUp, IconDownload } from '@tabler/icons-react';
+import { IconRobot, IconFileText, IconFile, IconFileWord, IconFileTypography, IconSend, IconStop } from '@tabler/icons-react';
+import { IconUpload, IconX, IconSettings, IconChevronUp, IconDownload, IconPaperclip } from '@tabler/icons-react';
 import { ParametersPopup } from '@/components/chat/ParametersPopup'
 import { Agent } from '@/types/agent'
 import { ImageViewer } from '../ImageViewer';
@@ -68,6 +68,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const [documentProcessing, setDocumentProcessing] = useState(false);
     const [documentAttachments, setDocumentAttachments] = useState<DocumentAttachment[]>([]);
     const [isTextareaFocused, setIsTextareaFocused] = useState(false);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     const {
         activeConversation,
@@ -82,6 +83,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const { user } = useAuthContext();
     const { updateSettings } = useSettingsContext();
     conversionService.setUser(user)
+
+    // Auto-resize textarea
+    useEffect(() => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
+        }
+    }, [input]);
 
     useEffect(() => {
         if (activeConversation) {
@@ -483,88 +492,166 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     };
 
     return (
-        <div className="bg-white dark:bg-gray-900 shadow-lg border-t dark:border-gray-700">
-            <form onSubmit={handleSubmit} className="p-2 sm:p-4">
-                <div className="flex flex-col space-y-2 max-w-4xl mx-auto">
-                    {/* Image Preview - Add max height to prevent too tall previews */}
-                    <div className="max-h-40 overflow-y-auto">
-                        {renderImagePreviews()}
-                    </div>
+        <div className="p-4">
+            {/* Attachments Preview */}
+            {(uploadedImages.length > 0 || documentAttachments.length > 0) && (
+                <div className="mb-3 p-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+                    {/* Image Previews */}
+                    {uploadedImages.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mb-2">
+                            {uploadedImages.map((image, index) => (
+                                <div key={index} className="relative">
+                                    <img
+                                        src={image}
+                                        alt={`Upload ${index + 1}`}
+                                        className="w-16 h-16 object-cover rounded-lg cursor-pointer"
+                                        onClick={() => setExpandedImageIndex(index)}
+                                    />
+                                    <button
+                                        onClick={() => onClearImage(index)}
+                                        className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600"
+                                    >
+                                        <IconX className="w-3 h-3" />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
 
                     {/* Document Attachments */}
-                    {renderDocumentAttachments()}
-
-                    {/* Input Controls */}
-                    <div className="flex items-stretch space-x-2">
-                        {/* Text Input */}
-                        <div className="flex-1">
-                            {selectedModel?.category.includes(CategoryType.Image) ? (
-                                <textarea
-                                    value={input}
-                                    onChange={(e) => onInputChange(e.target.value)}
-                                    onFocus={() => setIsTextareaFocused(true)}
-                                    onBlur={() => setIsTextareaFocused(false)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && !e.shiftKey) {
-                                            e.preventDefault();
-                                            handleSubmit(e);
-                                        }
-                                    }}
-                                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg 
-                                        focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-blue-400
-                                        min-h-[44px] sm:min-h-[80px] max-h-[120px] sm:max-h-[160px]
-                                        focus:min-h-[120px] resize-none
-                                        bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100
-                                        placeholder-gray-500 dark:placeholder-gray-400"
-                                    placeholder={tChat('describeImage')}
-                                    disabled={isLoading || documentProcessing}
-                                />
-                            ) : (
-                                <textarea
-                                    value={input}
-                                    onChange={(e) => onInputChange(e.target.value)}
-                                    onFocus={() => setIsTextareaFocused(true)}
-                                    onBlur={() => setIsTextareaFocused(false)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && !e.shiftKey) {
-                                            e.preventDefault();
-                                            handleSubmit(e);
-                                        }
-                                    }}
-                                    className="w-full px-3 py-2 text-base border border-gray-300 dark:border-gray-600 rounded-lg 
-                                        focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-blue-400
-                                        min-h-[44px] sm:min-h-[80px] max-h-[120px] sm:max-h-[160px]
-                                        focus:min-h-[120px] resize-none
-                                        bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100
-                                        placeholder-gray-500 dark:placeholder-gray-400"
-                                    placeholder={documentProcessing ? tChat('processingDocument') :
-                                        (documentAttachments.length > 0 ? tChat('askAboutDocuments') : tChat('typeMessage'))}
-                                    disabled={isLoading || documentProcessing}
-                                />
-                            )}
+                    {documentAttachments.length > 0 && (
+                        <div className="space-y-2">
+                            {documentAttachments.map(doc => (
+                                <div key={doc.id} className="flex items-center gap-3 p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                    <IconFile className="w-4 h-4 text-blue-500" />
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-medium truncate">{doc.name}</p>
+                                        <p className="text-xs text-gray-500">{(doc.size / 1024).toFixed(1)} KB</p>
+                                    </div>
+                                    <button
+                                        onClick={() => setDocumentAttachments(prev => prev.filter(d => d.id !== doc.id))}
+                                        className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
+                                    >
+                                        <IconX className="w-4 h-4 text-gray-500" />
+                                    </button>
+                                </div>
+                            ))}
                         </div>
+                    )}
+                </div>
+            )}
 
-                        {/* Send/Stop Button - Perfectly aligned with textarea */}
+            {/* Main Input Area */}
+            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent">
+                <div className="flex items-end gap-2 p-3">
+                    {/* Attachment Buttons */}
+                    <div className="flex items-center gap-1">
+                        {supportsImageInput(selectedModel) && (
+                            <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                                disabled={isLoading || documentProcessing}
+                            >
+                                <IconUpload className="w-5 h-5" />
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    multiple
+                                    className="hidden"
+                                    onChange={handleFileChange}
+                                />
+                            </button>
+                        )}
+
                         <button
-                            type={isLoading ? "button" : "submit"}
-                            onClick={isLoading ? onStop : (e) => {
-                                e.preventDefault();
-                                handleSubmit(e);
-                            }}
-                            disabled={documentProcessing}
-                            className={`px-3 py-2 text-sm sm:text-base 
-                                flex items-center justify-center
-                                border border-gray-300 dark:border-gray-600 rounded-lg
-                                ${isTextareaFocused || input.trim() ? 'h-[120px]' : 'h-11 sm:h-20'}
-                                ${documentProcessing ? 'bg-gray-400 dark:bg-gray-600 cursor-not-allowed' :
-                                isLoading ? 'bg-red-500 hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700 border-red-500 dark:border-red-600' : 'bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 border-blue-500 dark:border-blue-600'
-                                } text-white focus:outline-none focus:ring-1 
-                            focus:ring-blue-500 dark:focus:ring-blue-400 
-                            transition-all duration-200`}
+                            type="button"
+                            onClick={() => documentInputRef.current?.click()}
+                            className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                            disabled={isLoading || documentProcessing}
                         >
-                            {isLoading ? "Stop" : selectedModel?.category.includes(CategoryType.Image) ? "Generate" : "Send"}
+                            <IconPaperclip className="w-5 h-5" />
+                            <input
+                                ref={documentInputRef}
+                                type="file"
+                                accept=".pdf,.doc,.docx,.txt,.md,.markdown"
+                                multiple
+                                className="hidden"
+                                onChange={handleDocumentChange}
+                            />
                         </button>
                     </div>
+
+                    {/* Text Input */}
+                    <div className="flex-1">
+                        <textarea
+                            ref={textareaRef}
+                            value={input}
+                            onChange={(e) => onInputChange(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleSubmit(e);
+                                }
+                            }}
+                            placeholder={documentProcessing ? "Processing document..." : "Ask LEGAIA anything..."}
+                            disabled={isLoading || documentProcessing}
+                            className="w-full resize-none border-0 bg-transparent text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none text-base leading-6 max-h-32"
+                            rows={1}
+                        />
+                    </div>
+
+                    {/* Send Button */}
+                    <button
+                        type="submit"
+                        onClick={isLoading ? onStop : handleSubmit}
+                        disabled={(!input.trim() && documentAttachments.length === 0 && uploadedImages.length === 0) || documentProcessing}
+                        className={`p-2 rounded-lg transition-all ${
+                            isLoading
+                                ? 'bg-red-500 hover:bg-red-600 text-white'
+                                : (input.trim() || documentAttachments.length > 0 || uploadedImages.length > 0)
+                                    ? 'bg-blue-500 hover:bg-blue-600 text-white'
+                                    : 'bg-gray-100 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
+                        }`}
+                    >
+                        {isLoading ? (
+                            <IconStop className="w-5 h-5" />
+                        ) : (
+                            <IconSend className="w-5 h-5" />
+                        )}
+                    </button>
+                </div>
+
+                {/* Model Info Bar */}
+                <div className="flex items-center justify-between px-3 py-2 border-t border-gray-100 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400">
+                    <div className="flex items-center gap-2">
+                        {currentAgent ? (
+                            <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 px-2 py-1 rounded-full">
+                                Agent: {currentAgent.name}
+                            </span>
+                        ) : (
+                            <button
+                                onClick={() => setShowModelSelector(!showModelSelector)}
+                                className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200"
+                            >
+                                <IconSettings className="w-4 h-4" />
+                                {selectedModel?.name}
+                            </button>
+                        )}
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setShowAgentSelector(!showAgentSelector)}
+                            className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200"
+                        >
+                            <IconRobot className="w-4 h-4" />
+                            Agent
+                        </button>
+                    </div>
+                </div>
+            </div>
 
                     {/* Model Info */}
                     <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500 dark:text-gray-400">

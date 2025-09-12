@@ -1,0 +1,27 @@
+{
+  "name": "gsis-poc-web",
+  "private": true,
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "devDependencies": {
+    "@nuxt/devtools": "latest",
+    "nuxt": "^3.8.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.886.0",
+    "@aws-sdk/client-cognito-identity": "^3.450.0",
+    "@aws-sdk/client-cognito-identity-provider": "^3.886.0",
+    "@aws-sdk/credential-providers": "^3.886.0",
+    "@nuxtjs/tailwindcss": "^6.8.4",
+    "@pinia/nuxt": "^0.5.1",
+    "@types/marked": "^5.0.2",
+    "highlight.js": "^11.11.1",
+    "marked": "^16.2.1",
+    "pinia": "^2.1.7"
+  }
+}

@@ -24,20 +24,20 @@ export function ChatLayout() {
 
 	const { settings, toggleSidebar } = useSettingsContext();
 	const { openAgentManager } = useModal();
-	const [currentTitle, setCurrentTitle] = useState<string>('AWS Bedrock Chat');
+	const [currentTitle, setCurrentTitle] = useState<string>('LEGAIA');
 
 	useEffect(() => {
-		setCurrentTitle(activeConversation?.title || 'AWS Bedrock Chat');
+		setCurrentTitle(activeConversation?.title || 'LEGAIA');
 	}, [activeConversation?.title]);
 
 	const isEditorView = activeConversation?.type === 'editor';
 
 	return (
-		<div className="flex h-screen relative bg-white dark:bg-gray-900">
+		<div className="flex h-screen bg-gray-50 dark:bg-gray-950">
 			{/* Mobile Overlay */}
 			{settings.isSidebarVisible && (
 				<div
-					className="fixed inset-0 bg-black bg-opacity-50 z-20 lg:hidden"
+					className="fixed inset-0 bg-black/20 backdrop-blur-sm z-20 lg:hidden"
 					onClick={toggleSidebar}
 				/>
 			)}
@@ -47,10 +47,10 @@ export function ChatLayout() {
 				className={`
                     fixed lg:static
                     inset-y-0 left-0
-                    transform transition-transform duration-300 ease-in-out
+                    transform transition-all duration-300 ease-in-out
                     ${settings.isSidebarVisible ? 'translate-x-0' : '-translate-x-full'}
                     lg:translate-x-0
-                    w-80 lg:w-80
+                    w-72 lg:w-72
                     z-30
                 `}
 			>
@@ -62,47 +62,28 @@ export function ChatLayout() {
 			</div>
 
 			{/* Main Content */}
-			<div className="flex-1 flex flex-col w-full lg:w-[calc(100%-16rem)] pt-1 pb-1">
-				<header className="sticky top-0 bg-white dark:bg-gray-900 z-10 border-b border-gray-200 dark:border-gray-700">
-					<div className="h-full p-2 flex items-center justify-between max-w-screen-xl mx-auto">
-						<div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
-							{/* Mobile Toggle Button */}
+			<div className="flex-1 flex flex-col min-w-0">
+				{/* Header */}
+				<header className="sticky top-0 bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl z-10 border-b border-gray-200/50 dark:border-gray-800/50">
+					<div className="flex items-center justify-between px-4 py-3 max-w-4xl mx-auto w-full">
+						<div className="flex items-center gap-3">
+							{/* Mobile Toggle */}
 							<button
 								onClick={toggleSidebar}
-								className="inline-flex items-center justify-center gap-1 rounded py-1 px-2 text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800 lg:hidden transition-colors"
+								className="lg:hidden p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
 								aria-label={t('toggleSidebar')}
 							>
-								<IconMenu2 className="h-4 w-4" />
+								<IconMenu2 className="h-5 w-5 text-gray-600 dark:text-gray-400" />
 							</button>
 
-							{/* Mobile New Content Buttons */}
-							<div className="flex gap-2 lg:hidden">
-								<button
-									onClick={createNewConversation}
-									className="inline-flex items-center justify-center gap-1 rounded py-1 px-2 text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
-									aria-label={t('newConversation')}
-								>
-									<IconMessageCircle className="h-4 w-4" />
-								</button>
-								<button
-									onClick={createNewEditorConversation}
-									className="inline-flex items-center justify-center gap-1 rounded py-1 px-2 text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
-									aria-label={t('newDocument')}
-								>
-									<IconFileText className="h-4 w-4" />
-								</button>
-							</div>
-
-							{/* Title with Type Icon */}
-							<div className="flex items-center min-w-0 gap-2">
-								{isEditorView ? (
-									<IconFileText className="h-5 w-5 text-gray-600 dark:text-gray-300" />
-								) : (
-									<IconMessageCircle className="h-5 w-5 text-gray-600 dark:text-gray-300" />
-								)}
-								<h2 className="text-base font-bold text-gray-600 dark:text-gray-300 truncate">
-									{currentTitle}
-								</h2>
+							{/* Logo/Title */}
+							<div className="flex items-center gap-2">
+								<div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+									<span className="text-white font-bold text-sm">L</span>
+								</div>
+								<h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100 hidden sm:block">
+									LEGAIA
+								</h1>
 							</div>
 						</div>
 
@@ -111,10 +92,10 @@ export function ChatLayout() {
 					</div>
 				</header>
 
-				<main className="flex-1 overflow-auto bg-white dark:bg-gray-900">
+				{/* Main Chat Area */}
+				<main className="flex-1 overflow-hidden">
 					<Chat />
 				</main>
-
 			</div>
 		</div>
 	);

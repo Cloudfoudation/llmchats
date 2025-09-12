@@ -67,29 +67,47 @@ export const MessageList: React.FC<MessageListProps> = ({
 
     // Render message components
     const renderMessage = useCallback((message: Message, index: number) => {
-        const messageClass = message.role === 'user'
-            ? 'message message-user bg-blue-500 text-white rounded-lg p-4 ml-auto max-w-[80%] shadow-sm'
-            : 'message message-assistant bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg p-4 shadow-sm border border-gray-200 dark:border-gray-700 w-[calc(100%-1rem)]';
-
+        const isUser = message.role === 'user';
+        
         return (
-            <div key={`${index}-${message.role}`} className="mb-4">
-                <div className={messageClass}>
-                    <MessageContent
-                        message={message}
-                        onImageClick={handleImageClick}
-                    />
+            <div key={`${index}-${message.role}`} className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-6`}>
+                <div className={`max-w-[85%] ${isUser ? 'order-2' : 'order-1'}`}>
+                    {/* Avatar */}
+                    <div className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+                        <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                            isUser 
+                                ? 'bg-blue-500' 
+                                : 'bg-gradient-to-br from-purple-500 to-pink-500'
+                        }`}>
+                            <span className="text-white text-sm font-medium">
+                                {isUser ? 'U' : 'L'}
+                            </span>
+                        </div>
+                        
+                        {/* Message Bubble */}
+                        <div className={`flex-1 ${
+                            isUser 
+                                ? 'bg-blue-500 text-white rounded-2xl rounded-tr-md' 
+                                : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-2xl rounded-tl-md border border-gray-200 dark:border-gray-700 shadow-sm'
+                        } px-4 py-3`}>
+                            <MessageContent
+                                message={message}
+                                onImageClick={handleImageClick}
+                            />
+                        </div>
+                    </div>
                 </div>
             </div>
         );
     }, [handleImageClick]);
 
     return (
-        // Add pb-32 to account for the floating chat input
-        <div className="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-900">
-            {/* Add mb-32 to ensure last message is visible above chat input */}
-            <div className="w-full max-w-4xl mx-auto px-2 sm:px-4 py-4 mb-48">
+        <div className="flex-1 overflow-y-auto">
+            <div className="max-w-4xl mx-auto px-4 py-6 pb-32">
                 {/* Messages */}
-                {activeConversation && activeConversation.messages.map((message, index) => renderMessage(message, index))}
+                {activeConversation && activeConversation.messages.map((message, index) => 
+                    renderMessage(message, index)
+                )}
 
                 {/* Image Viewer */}
                 {expandedImages && (
@@ -104,7 +122,7 @@ export const MessageList: React.FC<MessageListProps> = ({
 
                 {/* Streaming Content */}
                 {streamingContent && activeConversation && (
-                    <div className="mb-4 animate-fade-in">
+                    <div className="animate-fade-in">
                         {renderMessage({
                             role: 'assistant',
                             content: streamingContent,

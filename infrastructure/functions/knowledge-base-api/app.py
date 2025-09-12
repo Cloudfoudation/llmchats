@@ -831,7 +831,7 @@ def create_vector_knowledge_base_with_retry(
             'knowledgeBaseConfiguration': {
                 'type': 'VECTOR',
                 'vectorKnowledgeBaseConfiguration': {
-                    'embeddingModelArn': f'arn:aws:bedrock:{REGION_NAME}::foundation-model/cohere.embed-multilingual-v3',
+                    'embeddingModelArn': f'arn:aws:bedrock:{REGION_NAME}::foundation-model/amazon.titan-embed-text-v2:0',
                     'embeddingModelConfiguration': {
                         'bedrockEmbeddingModelConfiguration': {
                             'embeddingDataType': 'FLOAT32'
@@ -1069,6 +1069,7 @@ def create_knowledge_base(user_info: dict, body: dict) -> dict:
         try:
             # Define S3 path using stored identityId
             s3_prefix = f"users/{identity_id}/knowledge-base/{folder_id}/"
+            print(f"DEBUG: Creating data source for KB {kb_data['knowledgeBaseId']} with S3 prefix: {s3_prefix}")
             
             # Create data source
             ds_request = {
@@ -1092,11 +1093,14 @@ def create_knowledge_base(user_info: dict, body: dict) -> dict:
                 }
             }
             
+            print(f"DEBUG: Data source request: {json.dumps(ds_request, indent=2)}")
             ds_response = bedrock_agent.create_data_source(**ds_request)
             data_source_id = ds_response['dataSource']['dataSourceId']
-            print(f"Data source created automatically: {data_source_id}")
+            print(f"SUCCESS: Data source created automatically: {data_source_id}")
         except Exception as ds_error:
-            print(f"Warning: Failed to automatically create data source: {ds_error}")
+            print(f"ERROR: Failed to automatically create data source: {ds_error}")
+            print(f"ERROR: Exception type: {type(ds_error).__name__}")
+            print(f"ERROR: Full traceback: {traceback.format_exc()}")
             # Continue with KB creation even if data source creation fails
             data_source_id = None
         

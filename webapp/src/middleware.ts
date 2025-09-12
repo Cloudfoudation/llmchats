@@ -1,18 +1,13 @@
-import createMiddleware from 'next-intl/middleware';
-import { locales, defaultLocale } from './lib/i18n';
+// Middleware temporarily disabled
+// import createMiddleware from 'next-intl/middleware';
+// import { locales, defaultLocale } from './lib/i18n';
 
-export default createMiddleware({
-  // A list of all locales that are supported
-  locales,
-  
-  // Used when no locale matches
-  defaultLocale,
-  
-  // Don't use locale prefixes in URLs
-  localePrefix: 'never'
-});
+// export default createMiddleware({
+//   locales,
+//   defaultLocale,
+//   localePrefix: 'never'
+// });
 
-export const config = {
-  // Match only internationalized pathnames
-  matcher: ['/((?!api|_next|_vercel|.*\\..*).*)']
-};
+// export const config = {
+//   matcher: ['/((?!api|_next|_vercel|.*\\..*).*)']
+// };

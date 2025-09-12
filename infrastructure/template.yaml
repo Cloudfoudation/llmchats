@@ -534,9 +534,13 @@ Resources:
                   - bedrock:StartIngestionJob
                   - bedrock:StopIngestionJob
                   - bedrock:GetIngestionJob
-                  - bedrock:ListIngestionJobs
                 Resource: 
                   - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*/data-source/*'
+              - Effect: Allow
+                Action:
+                  - bedrock:ListIngestionJobs
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*'
               - Effect: Allow
                 Action:
                   - bedrock:RetrieveAndGenerate
@@ -1806,9 +1810,13 @@ Resources:
                   - bedrock:StartIngestionJob
                   - bedrock:StopIngestionJob
                   - bedrock:GetIngestionJob
-                  - bedrock:ListIngestionJobs
                 Resource: 
                   - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*/ingestion-job/*'
+              - Effect: Allow
+                Action:
+                  - bedrock:ListIngestionJobs
+                Resource: 
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*'
               - Effect: Allow
                 Action:
                   - bedrock:GetDataSource
@@ -2314,50 +2322,8 @@ Resources:
                 - !Sub "${SyncSessionsTable.Arn}/index/*"
             - Effect: Allow
               Action:
-                - bedrock:InvokeModel
-                - bedrock:InvokeModelWithResponseStream
-                - bedrock:ListFoundationModels
-                - bedrock:GetFoundationModel
-              Resource: 
-                - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/*'
-            - Effect: Allow
-              Action:
-                - bedrock:InvokeModel
-                - bedrock:InvokeModelWithResponseStream
-              Resource: 
-                - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*'
-            - Effect: Allow
-              Action:
-                - bedrock:CreateKnowledgeBase
-                - bedrock:DeleteKnowledgeBase
-                - bedrock:GetKnowledgeBase
-                - bedrock:ListKnowledgeBases
-                - bedrock:UpdateKnowledgeBase
-                - bedrock:TagResource
-                - bedrock:UntagResource
-                - bedrock:ListTagsForResource
-                - bedrock:RetrieveAndGenerate
-                - bedrock:Retrieve
-                - bedrock:Rerank
-              Resource: 
-                - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*'
-            - Effect: Allow
-              Action:
-                - bedrock:ListDataSources
+                - bedrock:*
               Resource: '*'
-            - Effect: Allow
-              Action:
-                - bedrock:CreateDataSource
-                - bedrock:DeleteDataSource
-                - bedrock:GetDataSource
-                - bedrock:UpdateDataSource
-                - bedrock:StartIngestionJob
-                - bedrock:StopIngestionJob
-                - bedrock:GetIngestionJob
-                - bedrock:ListIngestionJobs
-              Resource: 
-                - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*/data-source/*'
-                - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*/ingestion-job/*'
             - Effect: Allow
               Action:
                 - s3:GetObject

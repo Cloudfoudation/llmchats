@@ -624,17 +624,27 @@ export const Chat: React.FC<ChatProps> = ({ }) => {
     };
 
     return (
-        <div className="flex flex-col h-full bg-white dark:bg-gray-900">
+        <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-950">
             <ErrorAlert error={error} onDismiss={() => setError(null)} />
             <SyncAlert />
+            
             {!activeConversation ? (
                 <div className="flex-1 flex items-center justify-center">
-                    <div className="text-center">
-                        <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-gray-100">Welcome to Bedrock Chat</h2>
+                    <div className="text-center max-w-md mx-auto px-4">
+                        <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                            <span className="text-white font-bold text-xl">L</span>
+                        </div>
+                        <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-gray-100">
+                            Welcome to LEGAIA
+                        </h2>
+                        <p className="text-gray-600 dark:text-gray-400 mb-8">
+                            Your AI-powered legal assistant. Start a conversation to get help with legal research, document analysis, and more.
+                        </p>
                         <button
                             onClick={() => createNewConversation()}
-                            className="bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white px-4 py-2 rounded"
+                            className="inline-flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-xl font-medium transition-colors"
                         >
+                            <IconMessageCircle className="h-5 w-5" />
                             Start New Chat
                         </button>
                     </div>
@@ -652,8 +662,10 @@ export const Chat: React.FC<ChatProps> = ({ }) => {
                             undefined}
                         onRetry={handleRetry}
                     />
-                    <div className="fixed bottom-0 left-0 right-0 lg:left-80 z-10">
-                        <div className="max-w-4xl mx-auto bg-white dark:bg-gray-900 rounded-lg">
+                    
+                    {/* Chat Input - Fixed at bottom */}
+                    <div className="sticky bottom-0 bg-gray-50/80 dark:bg-gray-950/80 backdrop-blur-xl border-t border-gray-200/50 dark:border-gray-800/50">
+                        <div className="max-w-4xl mx-auto">
                             <ChatInput
                                 input={input}
                                 isLoading={isProcessing}
