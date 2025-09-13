@@ -96,8 +96,8 @@ export class KnowledgeBaseService implements IKnowledgeBaseService {
         headers: this.getAuthHeaders()
       })
 
-      if (response.statusCode !== 200) {
-        throw new Error('Failed to delete knowledge base')
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Failed to delete knowledge base')
       }
     } catch (error) {
       console.error('Error deleting knowledge base:', error)

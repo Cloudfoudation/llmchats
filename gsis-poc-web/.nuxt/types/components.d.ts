@@ -20,6 +20,7 @@ interface _GlobalComponents {
     'CreateKnowledgeBaseModal': typeof import("../../components/CreateKnowledgeBaseModal.vue")['default']
     'CreateRoleModal': typeof import("../../components/CreateRoleModal.vue")['default']
     'FileUploadModal': typeof import("../../components/FileUploadModal.vue")['default']
+    'FileViewerModal': typeof import("../../components/FileViewerModal.vue")['default']
     'ImageDetailsModal': typeof import("../../components/ImageDetailsModal.vue")['default']
     'ImageSearch': typeof import("../../components/ImageSearch.vue")['default']
     'ImageUpload': typeof import("../../components/ImageUpload.vue")['default']
@@ -55,6 +56,7 @@ interface _GlobalComponents {
     'LazyCreateKnowledgeBaseModal': LazyComponent<typeof import("../../components/CreateKnowledgeBaseModal.vue")['default']>
     'LazyCreateRoleModal': LazyComponent<typeof import("../../components/CreateRoleModal.vue")['default']>
     'LazyFileUploadModal': LazyComponent<typeof import("../../components/FileUploadModal.vue")['default']>
+    'LazyFileViewerModal': LazyComponent<typeof import("../../components/FileViewerModal.vue")['default']>
     'LazyImageDetailsModal': LazyComponent<typeof import("../../components/ImageDetailsModal.vue")['default']>
     'LazyImageSearch': LazyComponent<typeof import("../../components/ImageSearch.vue")['default']>
     'LazyImageUpload': LazyComponent<typeof import("../../components/ImageUpload.vue")['default']>

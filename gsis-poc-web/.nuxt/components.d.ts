@@ -20,6 +20,7 @@ export const CreateAgentModal: typeof import("../components/CreateAgentModal.vue
 export const CreateKnowledgeBaseModal: typeof import("../components/CreateKnowledgeBaseModal.vue")['default']
 export const CreateRoleModal: typeof import("../components/CreateRoleModal.vue")['default']
 export const FileUploadModal: typeof import("../components/FileUploadModal.vue")['default']
+export const FileViewerModal: typeof import("../components/FileViewerModal.vue")['default']
 export const ImageDetailsModal: typeof import("../components/ImageDetailsModal.vue")['default']
 export const ImageSearch: typeof import("../components/ImageSearch.vue")['default']
 export const ImageUpload: typeof import("../components/ImageUpload.vue")['default']
@@ -55,6 +56,7 @@ export const LazyCreateAgentModal: LazyComponent<typeof import("../components/Cr
 export const LazyCreateKnowledgeBaseModal: LazyComponent<typeof import("../components/CreateKnowledgeBaseModal.vue")['default']>
 export const LazyCreateRoleModal: LazyComponent<typeof import("../components/CreateRoleModal.vue")['default']>
 export const LazyFileUploadModal: LazyComponent<typeof import("../components/FileUploadModal.vue")['default']>
+export const LazyFileViewerModal: LazyComponent<typeof import("../components/FileViewerModal.vue")['default']>
 export const LazyImageDetailsModal: LazyComponent<typeof import("../components/ImageDetailsModal.vue")['default']>
 export const LazyImageSearch: LazyComponent<typeof import("../components/ImageSearch.vue")['default']>
 export const LazyImageUpload: LazyComponent<typeof import("../components/ImageUpload.vue")['default']>
