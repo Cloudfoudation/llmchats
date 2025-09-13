@@ -1,0 +1,244 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Image Search Service with Rekognition
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+  AllowedOrigin:
+    Type: String
+    Description: CORS allowed origin for Nuxt frontend
+    Default: "*"
+
+Globals:
+  Function:
+    Runtime: python3.9
+    Timeout: 30
+    Environment:
+      Variables:
+        BUCKET: !Ref ImageBucket
+        RK_COLLECTION: !Sub "${AWS::StackName}-collection"
+        TABLE_IMG: !Ref ImageIndexTable
+        TABLE_FACE: !Ref FaceMapTable
+        ALLOWED_ORIGIN: !Ref AllowedOrigin
+
+Resources:
+  # S3 Bucket
+  ImageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AWS::StackName}-images-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteTempFiles
+            Status: Enabled
+            Prefix: temp/
+            ExpirationInDays: 7
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST, DELETE, HEAD]
+            AllowedOrigins: [!Ref AllowedOrigin]
+            MaxAge: 3000
+
+  # Rekognition Collection
+  RekognitionCollection:
+    Type: AWS::Rekognition::Collection
+    Properties:
+      CollectionId: !Sub "${AWS::StackName}-collection"
+
+  # DynamoDB Tables
+  ImageIndexTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${AWS::StackName}-ImageIndex"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: imageId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: imageId
+          KeyType: HASH
+
+  FaceMapTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${AWS::StackName}-FaceMap"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: faceId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: faceId
+          KeyType: HASH
+
+  # API Gateway
+  ImageSearchApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowMethods: ['*']
+        AllowHeaders: ['*']
+        AllowOrigins: [!Ref AllowedOrigin]
+
+  # Presign Upload Function
+  PresignUploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/presign-upload/
+      Handler: app.lambda_handler
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref ImageBucket
+      Events:
+        PresignApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ImageSearchApi
+            Path: /presign
+            Method: POST
+
+  # Ingest Function
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/ingest/
+      Handler: app.lambda_handler
+      Timeout: 60
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref ImageBucket
+        - S3WritePolicy:
+            BucketName: !Ref ImageBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ImageIndexTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FaceMapTable
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - rekognition:IndexFaces
+              Resource: !GetAtt RekognitionCollection.Arn
+      Events:
+        IngestApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ImageSearchApi
+            Path: /ingest
+            Method: POST
+
+  # Search Function
+  SearchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/search/
+      Handler: app.lambda_handler
+      Timeout: 60
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref ImageBucket
+        - DynamoDBReadPolicy:
+            TableName: !Ref ImageIndexTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref FaceMapTable
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - rekognition:SearchFacesByImage
+              Resource: !GetAtt RekognitionCollection.Arn
+      Events:
+        SearchApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ImageSearchApi
+            Path: /search/image
+            Method: POST
+
+  # Get Meta Function
+  GetMetaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/get-meta/
+      Handler: app.lambda_handler
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref ImageBucket
+        - DynamoDBReadPolicy:
+            TableName: !Ref ImageIndexTable
+      Events:
+        GetMetaApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ImageSearchApi
+            Path: /meta/{imageId}
+            Method: GET
+
+  # Health Check Function
+  HealthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/health/
+      Handler: app.lambda_handler
+      Events:
+        HealthApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ImageSearchApi
+            Path: /health
+            Method: GET
+
+  # CloudWatch Alarms
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-Lambda-Errors"
+      AlarmDescription: Lambda function errors
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+
+  ApiGateway5XXAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-API-5XX"
+      AlarmDescription: API Gateway 5XX errors
+      MetricName: 5XXError
+      Namespace: AWS/ApiGateway
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 10
+      ComparisonOperator: GreaterThanThreshold
+
+  DynamoDBThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-DDB-Throttles"
+      AlarmDescription: DynamoDB throttling
+      MetricName: ThrottledRequests
+      Namespace: AWS/DynamoDB
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${ImageSearchApi}.execute-api.${AWS::Region}.amazonaws.com"
+  BucketName:
+    Description: S3 bucket name
+    Value: !Ref ImageBucket
+  RekognitionCollection:
+    Description: Rekognition collection ID
+    Value: !Ref RekognitionCollection

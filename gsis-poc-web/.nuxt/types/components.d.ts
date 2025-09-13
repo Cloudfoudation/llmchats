@@ -14,7 +14,17 @@ type HydrationStrategies = {
 type LazyComponent<T> = (T & DefineComponent<HydrationStrategies, {}, {}, {}, {}, {}, {}, { hydrated: () => void }>)
 
 interface _GlobalComponents {
-      'ChatMessage': typeof import("../../components/ChatMessage.vue")['default']
+      'AssignAgentModal': typeof import("../../components/AssignAgentModal.vue")['default']
+    'ChatMessage': typeof import("../../components/ChatMessage.vue")['default']
+    'CreateAgentModal': typeof import("../../components/CreateAgentModal.vue")['default']
+    'CreateKnowledgeBaseModal': typeof import("../../components/CreateKnowledgeBaseModal.vue")['default']
+    'CreateRoleModal': typeof import("../../components/CreateRoleModal.vue")['default']
+    'FileUploadModal': typeof import("../../components/FileUploadModal.vue")['default']
+    'ImageDetailsModal': typeof import("../../components/ImageDetailsModal.vue")['default']
+    'ImageSearch': typeof import("../../components/ImageSearch.vue")['default']
+    'ImageUpload': typeof import("../../components/ImageUpload.vue")['default']
+    'SearchResults': typeof import("../../components/SearchResults.vue")['default']
+    'SimilarityBadge': typeof import("../../components/SimilarityBadge.vue")['default']
     'NuxtWelcome': typeof import("../../node_modules/nuxt/dist/app/components/welcome.vue")['default']
     'NuxtLayout': typeof import("../../node_modules/nuxt/dist/app/components/nuxt-layout")['default']
     'NuxtErrorBoundary': typeof import("../../node_modules/nuxt/dist/app/components/nuxt-error-boundary.vue")['default']
@@ -39,7 +49,17 @@ interface _GlobalComponents {
     'Body': typeof import("../../node_modules/nuxt/dist/head/runtime/components")['Body']
     'NuxtIsland': typeof import("../../node_modules/nuxt/dist/app/components/nuxt-island")['default']
     'NuxtRouteAnnouncer': typeof import("../../node_modules/nuxt/dist/app/components/server-placeholder")['default']
-      'LazyChatMessage': LazyComponent<typeof import("../../components/ChatMessage.vue")['default']>
+      'LazyAssignAgentModal': LazyComponent<typeof import("../../components/AssignAgentModal.vue")['default']>
+    'LazyChatMessage': LazyComponent<typeof import("../../components/ChatMessage.vue")['default']>
+    'LazyCreateAgentModal': LazyComponent<typeof import("../../components/CreateAgentModal.vue")['default']>
+    'LazyCreateKnowledgeBaseModal': LazyComponent<typeof import("../../components/CreateKnowledgeBaseModal.vue")['default']>
+    'LazyCreateRoleModal': LazyComponent<typeof import("../../components/CreateRoleModal.vue")['default']>
+    'LazyFileUploadModal': LazyComponent<typeof import("../../components/FileUploadModal.vue")['default']>
+    'LazyImageDetailsModal': LazyComponent<typeof import("../../components/ImageDetailsModal.vue")['default']>
+    'LazyImageSearch': LazyComponent<typeof import("../../components/ImageSearch.vue")['default']>
+    'LazyImageUpload': LazyComponent<typeof import("../../components/ImageUpload.vue")['default']>
+    'LazySearchResults': LazyComponent<typeof import("../../components/SearchResults.vue")['default']>
+    'LazySimilarityBadge': LazyComponent<typeof import("../../components/SimilarityBadge.vue")['default']>
     'LazyNuxtWelcome': LazyComponent<typeof import("../../node_modules/nuxt/dist/app/components/welcome.vue")['default']>
     'LazyNuxtLayout': LazyComponent<typeof import("../../node_modules/nuxt/dist/app/components/nuxt-layout")['default']>
     'LazyNuxtErrorBoundary': LazyComponent<typeof import("../../node_modules/nuxt/dist/app/components/nuxt-error-boundary.vue")['default']>

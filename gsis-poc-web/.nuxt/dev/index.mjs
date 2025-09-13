@@ -23,7 +23,7 @@ import { toRouteMatcher, createRouter } from 'file:///Users/ecloudvalley/Documen
 import { readFile } from 'node:fs/promises';
 import consola, { consola as consola$1 } from 'file:///Users/ecloudvalley/Documents/ecv-projects/gsis/llmchats/gsis-poc-web/node_modules/consola/dist/index.mjs';
 import { ErrorParser } from 'file:///Users/ecloudvalley/Documents/ecv-projects/gsis/llmchats/gsis-poc-web/node_modules/youch-core/build/index.js';
-import { Youch } from 'file:///Users/ecloudvalley/Documents/ecv-projects/gsis/llmchats/gsis-poc-web/node_modules/nitropack/node_modules/youch/build/index.js';
+import { Youch } from 'file:///Users/ecloudvalley/Documents/ecv-projects/gsis/llmchats/gsis-poc-web/node_modules/youch/build/index.js';
 import { SourceMapConsumer } from 'file:///Users/ecloudvalley/Documents/ecv-projects/gsis/llmchats/gsis-poc-web/node_modules/source-map/source-map.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { stringify, uneval } from 'file:///Users/ecloudvalley/Documents/ecv-projects/gsis/llmchats/gsis-poc-web/node_modules/devalue/index.js';
@@ -648,6 +648,7 @@ const _inlineRuntimeConfig = {
     }
   },
   "public": {
+    "apiUrl": "https://d8q6coohkc.execute-api.us-east-1.amazonaws.com/dev/",
     "region": "us-east-1",
     "awsRegion": "us-east-1",
     "userPoolId": "us-east-1_f8w4Bbn1W",
@@ -655,6 +656,8 @@ const _inlineRuntimeConfig = {
     "identityPoolId": "us-east-1:1515bfa1-27a6-486b-b6f1-4821c2c58631",
     "cognitoDomain": "gsis-poc.auth.us-east-1.amazoncognito.com",
     "agentManagementApiUrl": "https://d8q6coohkc.execute-api.us-east-1.amazonaws.com/dev/",
+    "knowledgeBaseApiUrl": "https://xll4e886d5.execute-api.us-east-1.amazonaws.com/dev/",
+    "rbacApiUrl": "https://w3p74lydv5.execute-api.us-east-1.amazonaws.com/dev/",
     "appName": "GSIS AI Portal"
   }
 };

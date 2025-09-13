@@ -23,6 +23,35 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
               </svg>
             </button>
+            <NuxtLink 
+              v-if="isAdmin"
+              to="/admin/roles"
+              class="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              title="Role Management"
+            >
+              <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+              </svg>
+            </NuxtLink>
+            <NuxtLink 
+              v-if="isAdmin"
+              to="/admin/agents"
+              class="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              title="Agent Management"
+            >
+              <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+              </svg>
+            </NuxtLink>
+            <NuxtLink 
+              to="/image-search"
+              class="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              title="Image Search"
+            >
+              <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+              </svg>
+            </NuxtLink>
             <button 
               @click="showMenu = !showMenu"
               class="p-2 rounded-lg hover:bg-gray-100 transition-colors"
@@ -245,16 +274,46 @@
     <!-- Mobile Menu -->
     <div 
       v-if="showMenu"
-      class="fixed inset-0 z-50 md:hidden"
+      class="fixed inset-0 z-50"
       @click="showMenu = false"
     >
       <div class="absolute inset-0 bg-black bg-opacity-50"></div>
-      <div class="absolute right-0 top-0 h-full w-64 bg-white shadow-xl">
+      <div class="absolute right-0 top-0 h-full w-64 bg-white shadow-xl" @click.stop>
         <div class="p-4">
           <h3 class="font-semibold text-gray-900 mb-4">Menu</h3>
           <nav class="space-y-2">
-            <a href="#" class="block px-3 py-2 rounded-lg hover:bg-gray-100">Home</a>
-            <a href="#" class="block px-3 py-2 rounded-lg hover:bg-gray-100">Knowledge Base</a>
+            <NuxtLink to="/" class="block px-3 py-2 rounded-lg hover:bg-gray-100" @click="showMenu = false">Home</NuxtLink>
+            <NuxtLink 
+              v-if="isAdmin"
+              to="/admin/roles" 
+              class="block px-3 py-2 rounded-lg hover:bg-gray-100"
+              @click="showMenu = false"
+            >
+              Role Management
+            </NuxtLink>
+            <NuxtLink 
+              v-if="isAdmin"
+              to="/admin/agents" 
+              class="block px-3 py-2 rounded-lg hover:bg-gray-100"
+              @click="showMenu = false"
+            >
+              Agent Management
+            </NuxtLink>
+            <NuxtLink 
+              v-if="isAdmin"
+              to="/admin/knowledge-bases" 
+              class="block px-3 py-2 rounded-lg hover:bg-gray-100"
+              @click="showMenu = false"
+            >
+              Knowledge Base
+            </NuxtLink>
+            <NuxtLink 
+              to="/image-search" 
+              class="block px-3 py-2 rounded-lg hover:bg-gray-100"
+              @click="showMenu = false"
+            >
+              Image Search
+            </NuxtLink>
             <a href="#" class="block px-3 py-2 rounded-lg hover:bg-gray-100">Settings</a>
           </nav>
         </div>
@@ -281,8 +340,27 @@ const currentMessage = ref('')
 const isLoading = ref(false)
 const showMenu = ref(false)
 
-// Auth composable
-const { user, logout } = useAuth()
+// Pinia stores
+const authStore = useAuthStore()
+const rbacStore = useRBACStore()
+
+// Destructure for template use
+const { user, isAdmin } = storeToRefs(authStore)
+const { canManageRoles, userPermissions, userDashboard, error } = storeToRefs(rbacStore)
+
+// Get logout function from store (not reactive)
+const { logout } = authStore
+
+// Debug logs
+watchEffect(() => {
+  console.log('🔍 Pinia Debug:')
+  console.log('- User:', user.value)
+  console.log('- Is Admin:', isAdmin.value)
+  console.log('- Can manage roles:', canManageRoles.value)
+  console.log('- User permissions:', userPermissions.value)
+  console.log('- User dashboard:', userDashboard.value)
+  console.log('- RBAC error:', error.value)
+})
 
 // Composable for chat functionality (following SOLID principles)
 const { sendChatMessage } = useChatService()

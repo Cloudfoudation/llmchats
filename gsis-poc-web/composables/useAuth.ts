@@ -1,11 +1,11 @@
 import { CognitoIdentityProviderClient, InitiateAuthCommand, GetUserCommand } from '@aws-sdk/client-cognito-identity-provider'
+import { useSharedAuth } from './useGlobalState'
 
 export const useAuth = () => {
   const config = useRuntimeConfig()
-  const user = ref(null)
-  const isAuthenticated = ref(false)
-  const isLoading = ref(false)
-  const isInitialized = ref(false)
+  
+  // Use shared global state
+  const { user, isAuthenticated, isLoading, isInitialized } = useSharedAuth()
   
   // Initialize Cognito client
   const cognitoClient = new CognitoIdentityProviderClient({
@@ -39,6 +39,13 @@ export const useAuth = () => {
       const idToken = authResponse.AuthenticationResult.IdToken
       const refreshToken = authResponse.AuthenticationResult.RefreshToken
       
+      // Store tokens in localStorage for persistence
+      if (process.client) {
+        localStorage.setItem('accessToken', accessToken)
+        localStorage.setItem('idToken', idToken)
+        localStorage.setItem('refreshToken', refreshToken)
+      }
+      
       // Get user details
       const getUserCommand = new GetUserCommand({
         AccessToken: accessToken
@@ -51,7 +58,11 @@ export const useAuth = () => {
       const userEmail = attributes.find(attr => attr.Name === 'email')?.Value || email
       const groups = attributes.find(attr => attr.Name === 'custom:groups')?.Value?.split(',') || ['free']
       
+      // Extract sub from UserAttributes
+      const subAttribute = attributes.find(attr => attr.Name === 'sub')?.Value
+      
       const cognitoUser = {
+        sub: subAttribute || userResponse.Username, // Use sub from attributes
         email: userEmail,
         username: userResponse.Username || email.split('@')[0],
         groups,
@@ -59,6 +70,8 @@ export const useAuth = () => {
         idToken,
         refreshToken
       }
+      
+      console.log('🔍 Auth - Cognito user created:', cognitoUser)
       
 
       
@@ -105,10 +118,21 @@ export const useAuth = () => {
         AccessToken: accessToken
       })
       
-      await cognitoClient.send(getUserCommand)
+      const userResponse = await cognitoClient.send(getUserCommand)
+      
+      // Parse stored user and ensure sub is present
+      const parsedUser = JSON.parse(storedUser)
+      
+      // If sub is missing, get it from Cognito response
+      if (!parsedUser.sub && userResponse.UserAttributes) {
+        const subAttribute = userResponse.UserAttributes.find(attr => attr.Name === 'sub')?.Value
+        parsedUser.sub = subAttribute || userResponse.Username
+      }
+      
+      console.log('🔍 Auth - Restored user:', parsedUser)
       
       // Token is valid, restore user
-      user.value = JSON.parse(storedUser)
+      user.value = parsedUser
       isAuthenticated.value = true
       return user.value
     } catch (error) {
@@ -148,6 +172,17 @@ export const useAuth = () => {
     }
   }
 
+  // Get auth headers for API calls
+  const getAuthHeaders = (): Record<string, string> => {
+    const accessToken = process.client ? localStorage.getItem('access_token') : null
+    return accessToken ? {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    } : {
+      'Content-Type': 'application/json'
+    }
+  }
+
   return {
     user: readonly(user),
     isAuthenticated: readonly(isAuthenticated),
@@ -156,6 +191,7 @@ export const useAuth = () => {
     login,
     logout,
     getCurrentUser,
-    checkAuth
+    checkAuth,
+    getAuthHeaders
   }
 }

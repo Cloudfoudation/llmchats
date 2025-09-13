@@ -105,18 +105,21 @@ aws bedrock list-foundation-models --region $(aws configure get region)
 
 ## Deployment Steps
 
-### Step 1: Activate Environment and Clone Repository
+### Step 1: Activate Environment and Navigate to Project
 ```bash
+# Navigate to project directory
+cd /Users/ecloudvalley/Documents/ecv-projects/gsis/llmchats
+
 # Activate your Python virtual environment
 source gsis-poc-env/bin/activate
 
-# Clone and prepare repository
-git clone <repository-url>
-cd llmchats
+# Verify environment is activated (should show (gsis-poc-env) in prompt)
+which python
+which sam
 
 # Navigate to infrastructure folder for deployment
 cd infrastructure
-pwd  # Should show: /path/to/llmchats/infrastructure
+pwd  # Should show: /Users/ecloudvalley/Documents/ecv-projects/gsis/llmchats/infrastructure
 ```
 
 ### Step 2: Create Deployment Parameters
@@ -164,6 +167,9 @@ EOF
 # IMPORTANT: Must be in infrastructure/ folder
 pwd  # Should show: /path/to/llmchats/infrastructure
 
+# Activate Python virtual environment first
+source ../gsis-poc-env/bin/activate
+
 # Verify required files exist
 ls -la  # Should see: template.yaml, deployment-params.json, functions/
 
@@ -176,21 +182,36 @@ echo "Stack: gsis-poc"
 # Build SAM application (processes template and packages Lambda functions)
 sam build
 
-# Deploy using SAM (recommended - handles Lambda packaging automatically)
+# Deploy using SAM with parameter file (recommended)
 sam deploy \
   --stack-name gsis-poc \
-  --region $(aws configure get region) \
-  --parameter-overrides \
-    BucketName=gsis-poc-spa-$(date +%s) \
-    GoogleClientId=your-google-client-id.apps.googleusercontent.com \
-    GoogleClientSecret=GOCSPX-your-google-client-secret \
-    AdminEmail=admin@gsis.com \
-    BDABucket=gsis-poc-bda-us-east-1-$(date +%s) \
-    Environment=dev \
-    YourDomain=http://localhost:3000 \
+  --parameter-overrides file://deployment-params.json \
   --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-  --resolve-s3 \
-  --confirm-changeset
+  --region us-east-1 \
+  --resolve-s3
+
+# Alternative: Simple SAM deploy command (auto-resolves S3 bucket)
+sam deploy \
+  --stack-name gsis-poc \
+  --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+  --region us-east-1 \
+  --resolve-s3
+
+# Alternative: Deploy with inline parameters
+# sam deploy \
+#   --stack-name gsis-poc \
+#   --region $(aws configure get region) \
+#   --parameter-overrides \
+#     BucketName=gsis-poc-spa-$(date +%s) \
+#     GoogleClientId=your-google-client-id.apps.googleusercontent.com \
+#     GoogleClientSecret=GOCSPX-your-google-client-secret \
+#     AdminEmail=admin@gsis.com \
+#     BDABucket=gsis-poc-bda-us-east-1-$(date +%s) \
+#     Environment=dev \
+#     YourDomain=http://localhost:3000 \
+#   --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+#   --resolve-s3 \
+#   --confirm-changeset
 
 # Alternative: Use CloudFormation deploy with SAM package (for JSON parameter files)
 # DEPLOYMENT_BUCKET="gsis-poc-deployment-$(date +%s)"
@@ -205,6 +226,15 @@ sam deploy \
 
 # Wait for deployment to complete (5-10 minutes)
 # Note: If deployment fails due to Bedrock model access, enable models first
+
+# Verify new RBAC tables were created
+echo "Verifying RBAC tables:"
+aws dynamodb list-tables --query 'TableNames[?contains(@, `gsis-poc`)]' --output table
+
+# Should see new tables:
+# - gsis-poc-users
+# - gsis-poc-roles  
+# - gsis-poc-role-agents
 ```
 
 ### Step 4: Configure Cognito Lambda Triggers (Mac M1 Compatible)

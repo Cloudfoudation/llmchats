@@ -31,6 +31,11 @@ def create_error_response(status_code: int, error_code: str, error_message: str)
         }
     })
 
+def check_admin_permission(user_groups: list) -> bool:
+    """Check if user has admin permissions for user management"""
+    admin_groups = ['gsis-admin']
+    return any(group in admin_groups for group in user_groups)
+
 def get_user_info(event) -> dict:
     """Extract user information from Cognito authorizer context"""
     request_context = event.get('requestContext', {})
@@ -50,7 +55,7 @@ def get_user_info(event) -> dict:
         'groups': groups
     }
 
-def list_users(query_params: dict) -> dict:
+def list_users(event, query_params: dict) -> dict:
     """
     List users in the Cognito user pool with pagination
     
@@ -61,6 +66,11 @@ def list_users(query_params: dict) -> dict:
         dict: Response with users list and pagination token
     """
     try:
+        # Check admin permissions
+        user_info = get_user_info(event)
+        if not check_admin_permission(user_info.get('groups', [])):
+            return create_error_response(403, "INSUFFICIENT_PERMISSIONS", 
+                "You need admin permissions to list users")
         # Extract query parameters for pagination
         limit = int(query_params.get('limit', '50'))
         pagination_token = query_params.get('paginationToken')
@@ -171,7 +181,7 @@ def get_user(username: str) -> dict:
         traceback.print_exc()
         return create_error_response(500, "INTERNAL_ERROR", str(e))
 
-def create_user(body: dict) -> dict:
+def create_user(event, body: dict) -> dict:
     """
     Create a new user in Cognito
     
@@ -182,6 +192,11 @@ def create_user(body: dict) -> dict:
         dict: Response with created user details
     """
     try:
+        # Check admin permissions
+        user_info = get_user_info(event)
+        if not check_admin_permission(user_info.get('groups', [])):
+            return create_error_response(403, "INSUFFICIENT_PERMISSIONS", 
+                "You need admin permissions to create users")
         username = body.get('username')
         email = body.get('email')
         temp_password = body.get('temporaryPassword')
@@ -520,10 +535,10 @@ def lambda_handler(event, context):
             body = json.loads(event.get('body', '{}'))
             return update_current_user_profile(event, body)
         elif path == '/users' and method == 'GET':
-            return list_users(query_parameters)
+            return list_users(event, query_parameters)
         elif path == '/users' and method == 'POST':
             body = json.loads(event.get('body', '{}'))
-            return create_user(body)
+            return create_user(event, body)
         elif path.startswith('/users/') and method == 'GET' and 'username' in path_parameters:
             return get_user(path_parameters['username'])
         elif path.startswith('/users/') and method == 'DELETE' and 'username' in path_parameters:

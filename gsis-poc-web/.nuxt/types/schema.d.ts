@@ -112,6 +112,8 @@ declare module 'nuxt/schema' {
    },
   }
   interface PublicRuntimeConfig {
+   apiUrl: string,
+
    region: string,
 
    awsRegion: string,
@@ -125,6 +127,10 @@ declare module 'nuxt/schema' {
    cognitoDomain: string,
 
    agentManagementApiUrl: string,
+
+   knowledgeBaseApiUrl: string,
+
+   rbacApiUrl: string,
 
    appName: string,
   }

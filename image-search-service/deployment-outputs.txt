@@ -1,0 +1,20 @@
+Image Search Service - Deployment Outputs
+==========================================
+
+API Endpoint: https://zr2659riri.execute-api.us-east-1.amazonaws.com
+S3 Bucket: image-search-service-images-083341655278
+Rekognition Collection: image-search-service-collection
+
+Deployment Date: January 13, 2025
+Stack Name: image-search-service
+Region: us-east-1
+
+Available Endpoints:
+- POST /presign - Generate upload URLs
+- POST /ingest - Index faces (no auth for now)
+- POST /search/image - Search similar faces
+- GET /meta/{imageId} - Get image metadata
+- GET /health - Health check
+
+Test Health Endpoint:
+curl https://zr2659riri.execute-api.us-east-1.amazonaws.com/health

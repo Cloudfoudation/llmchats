@@ -21,6 +21,7 @@ export default defineNuxtConfig({
   },
   runtimeConfig: {
     public: {
+      apiUrl: process.env.NUXT_PUBLIC_API_URL || process.env.NUXT_PUBLIC_AGENT_MANAGEMENT_API_URL,
       region: process.env.NUXT_PUBLIC_REGION || 'us-east-1',
       awsRegion: process.env.NUXT_PUBLIC_AWS_REGION || 'us-east-1',
       userPoolId: process.env.NUXT_PUBLIC_USER_POOL_ID,
@@ -28,6 +29,8 @@ export default defineNuxtConfig({
       identityPoolId: process.env.NUXT_PUBLIC_IDENTITY_POOL_ID,
       cognitoDomain: process.env.NUXT_PUBLIC_COGNITO_DOMAIN,
       agentManagementApiUrl: process.env.NUXT_PUBLIC_AGENT_MANAGEMENT_API_URL,
+      knowledgeBaseApiUrl: process.env.NUXT_PUBLIC_KNOWLEDGE_BASE_API_URL,
+      rbacApiUrl: process.env.NUXT_PUBLIC_RBAC_API_URL,
       appName: process.env.NUXT_PUBLIC_APP_NAME || 'GSIS AI Portal'
     }
   }

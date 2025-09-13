@@ -373,29 +373,22 @@ Resources:
           ProviderName: !GetAtt CognitoUserPool.ProviderName
           ServerSideTokenCheck: true
 
-  AdminGroup:
+  # Simple 2-Role System
+  GSISAdminGroup:
     Type: AWS::Cognito::UserPoolGroup
     Properties:
-      GroupName: admin
+      GroupName: gsis-admin
       UserPoolId: !Ref CognitoUserPool
-      Description: Admin users with full access
+      Description: GSIS administrators with full management access
       Precedence: 1
 
-  PaidGroup:
+  GeneralUserGroup:
     Type: AWS::Cognito::UserPoolGroup
     Properties:
-      GroupName: paid
+      GroupName: general-user
       UserPoolId: !Ref CognitoUserPool
-      Description: Paid users with extended access
+      Description: General users with access to own resources
       Precedence: 2
-
-  FreeGroup:
-    Type: AWS::Cognito::UserPoolGroup
-    Properties:
-      GroupName: free
-      UserPoolId: !Ref CognitoUserPool
-      Description: Free users with limited access
-      Precedence: 3
 
   # IAM Role for authenticated users
   CognitoAuthenticatedRole:
@@ -472,12 +465,20 @@ Resources:
                 Value: "admin"
               - Claim: "cognito:groups"
                 MatchType: Contains
-                RoleARN: !GetAtt PaidUserRole.Arn
-                Value: "paid"
+                RoleARN: !GetAtt GovernmentAdminRole.Arn
+                Value: "government-admin"
               - Claim: "cognito:groups"
                 MatchType: Contains
-                RoleARN: !GetAtt FreeUserRole.Arn
-                Value: "free"
+                RoleARN: !GetAtt DepartmentHeadRole.Arn
+                Value: "department-head"
+              - Claim: "cognito:groups"
+                MatchType: Contains
+                RoleARN: !GetAtt AnalystRole.Arn
+                Value: "analyst"
+              - Claim: "cognito:groups"
+                MatchType: Contains
+                RoleARN: !GetAtt ViewerRole.Arn
+                Value: "viewer"
 
   AdminRole:
     Type: AWS::IAM::Role
@@ -650,7 +651,7 @@ Resources:
                   - kms:GenerateDataKey
                   - kms:DescribeKey
                 Resource: !GetAtt KMSKey.Arn
-  PaidUserRole:
+  GovernmentAdminRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -666,7 +667,7 @@ Resources:
               'ForAnyValue:StringLike':
                 'cognito-identity.amazonaws.com:amr': authenticated
       Policies:
-        - PolicyName: PaidUserAccess
+        - PolicyName: GovernmentAdminAccess
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -742,7 +743,7 @@ Resources:
                 Condition:
                   StringEquals:
                     'iam:PassedToService': 'bedrock.amazonaws.com'
-        - PolicyName: PaidUserDynamoDBAccess
+        - PolicyName: GovernmentAdminDynamoDBAccess
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -779,7 +780,7 @@ Resources:
                   - !GetAtt UserGroupsTable.Arn
                   - !GetAtt SharedAgentsTable.Arn
                   - !GetAtt SharedKnowledgeBasesTable.Arn
-        - PolicyName: PaidUserS3Access
+        - PolicyName: GovernmentAdminS3Access
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -821,7 +822,8 @@ Resources:
                   - kms:GenerateDataKey
                   - kms:DescribeKey
                 Resource: !GetAtt KMSKey.Arn
-  FreeUserRole:
+
+  DepartmentHeadRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -837,24 +839,29 @@ Resources:
               'ForAnyValue:StringLike':
                 'cognito-identity.amazonaws.com:amr': authenticated
       Policies:
-        - PolicyName: FreeUserAccess
+        - PolicyName: DepartmentHeadAccess
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
+                  - bedrock:ListFoundationModels
+                  - bedrock:GetFoundationModel
                   - bedrock:InvokeModel
                   - bedrock:InvokeModelWithResponseStream
-                Resource: 
-                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/meta.llama3-2-1b-instruct-v1:0'
-                Condition:
-                  StringEquals:
-                    'aws:RequestedRegion': !Ref AWS::Region
-        - PolicyName: FreeUserDynamoDBAccess
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:ListKnowledgeBases
+                  - bedrock:CreateKnowledgeBase
+                  - bedrock:GetKnowledgeBase
+                  - bedrock:UpdateKnowledgeBase
+                  - bedrock:DeleteKnowledgeBase
+                Resource: '*'
+        - PolicyName: DepartmentHeadDynamoDBAccess
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              # Access to user's own resources using identityId
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
@@ -862,8 +869,106 @@ Resources:
                   - dynamodb:UpdateItem
                   - dynamodb:DeleteItem
                   - dynamodb:Query
-                  - dynamodb:BatchGetItem
-                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt AgentsTable.Arn
+                  - !GetAtt ConversationsTable.Arn
+                  - !GetAtt KnowledgeBasesTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    'dynamodb:LeadingKeys': 
+                      - "${cognito-identity.amazonaws.com:sub}"
+
+  AnalystRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'cognito-identity.amazonaws.com:aud': !Ref CognitoIdentityPool
+              'ForAnyValue:StringLike':
+                'cognito-identity.amazonaws.com:amr': authenticated
+      Policies:
+        - PolicyName: AnalystAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:ListFoundationModels
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:ListKnowledgeBases
+                  - bedrock:GetKnowledgeBase
+                  - bedrock:Retrieve
+                Resource: '*'
+        - PolicyName: AnalystDynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt AgentsTable.Arn
+                  - !GetAtt ConversationsTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    'dynamodb:LeadingKeys': 
+                      - "${cognito-identity.amazonaws.com:sub}"
+
+  ViewerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'cognito-identity.amazonaws.com:aud': !Ref CognitoIdentityPool
+              'ForAnyValue:StringLike':
+                'cognito-identity.amazonaws.com:amr': authenticated
+      Policies:
+        - PolicyName: ViewerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:ListFoundationModels
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:ListKnowledgeBases
+                  - bedrock:GetKnowledgeBase
+                  - bedrock:Retrieve
+                Resource: '*'
+        - PolicyName: ViewerDynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Read-only access to user's own resources
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
                 Resource:
                   - !GetAtt AgentsTable.Arn
                   - !GetAtt ConversationsTable.Arn
@@ -872,7 +977,7 @@ Resources:
                   ForAllValues:StringEquals:
                     'dynamodb:LeadingKeys':
                       - "${cognito-identity.amazonaws.com:sub}"
-              # Limited access to groups (read only)
+              # Read-only access to shared resources
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
@@ -882,7 +987,7 @@ Resources:
                   - !GetAtt UserGroupsTable.Arn
                   - !GetAtt SharedAgentsTable.Arn
                   - !GetAtt SharedKnowledgeBasesTable.Arn                
-        - PolicyName: FreeUserS3Access
+        - PolicyName: ViewerS3Access
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -898,10 +1003,9 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:GetObject
-                  - s3:PutObject
-                  - s3:DeleteObject
                 Resource: 
                   - !Join ['', [!GetAtt AttachmentsBucket.Arn, '/users/${cognito-identity.amazonaws.com:sub}/*']]
+                  - !Join ['', [!GetAtt AttachmentsBucket.Arn, '/shared/public/*']]
 
   CognitoDomain:
     Type: AWS::Cognito::UserPoolDomain
@@ -1350,6 +1454,132 @@ Resources:
               KeyType: HASH
             - AttributeName: sharedBy
               KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref KMSKey
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataClassification
+          Value: Sensitive
+
+  # Group Permissions Table for Dynamic RBAC
+  GroupPermissionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-group-permissions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: groupName
+          AttributeType: S
+      KeySchema:
+        - AttributeName: groupName
+          KeyType: HASH
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref KMSKey
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataClassification
+          Value: Sensitive
+
+  # NEW RBAC Tables
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-users
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: EmailIndex
+          KeySchema:
+            - AttributeName: email
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref KMSKey
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataClassification
+          Value: Sensitive
+
+  RolesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-roles
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: roleId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: roleId
+          KeyType: HASH
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref KMSKey
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: DataClassification
+          Value: Sensitive
+
+  RoleAgentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-role-agents
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: roleId
+          AttributeType: S
+        - AttributeName: agentId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: roleId
+          KeyType: HASH
+        - AttributeName: agentId
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: AgentRolesIndex
+          KeySchema:
+            - AttributeName: agentId
+              KeyType: HASH
           Projection:
             ProjectionType: ALL
       StreamSpecification:
@@ -1854,15 +2084,19 @@ Resources:
                 - 'cognito-idp:GetUser'
               Resource: '*'
 
-  CustomIsPaidAuthorizerFunction:
+  RBACAuthorizerFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: ispaid_custom_authorizer.lambda_handler
+      Handler: rbac_authorizer.lambda_handler
       Runtime: python3.9
       CodeUri: ./functions/authorizer/
+      Timeout: 10
       Environment:
         Variables:
           USER_POOL_ID: !Ref CognitoUserPool
+          IDENTITY_POOL_ID: !Ref CognitoIdentityPool
+          USERS_TABLE: !Ref UsersTable
+          COGNITO_REGION: !Ref AWS::Region
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -1870,6 +2104,21 @@ Resources:
               Action:
                 - 'cognito-idp:GetUser'
               Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'cognito-identity:GetId'
+              Resource: !Sub 'arn:aws:cognito-identity:${AWS::Region}:${AWS::AccountId}:identitypool/${CognitoIdentityPool}'
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:Query
+              Resource: 
+                - !GetAtt UsersTable.Arn
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+                - kms:DescribeKey
+              Resource: !GetAtt KMSKey.Arn
 
   # User Management API
   UserManagementApi:
@@ -1878,8 +2127,8 @@ Resources:
       StageName: !Ref Environment
       Auth:
         Authorizers:
-          CustomAuthorizer:
-            FunctionArn: !GetAtt CustomAuthorizerFunction.Arn
+          RBACAuthorizer:
+            FunctionArn: !GetAtt RBACAuthorizerFunction.Arn
             Identity:
               Header: Authorization
       Cors:
@@ -1921,7 +2170,7 @@ Resources:
             Path: /users
             Method: GET
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         CreateUser:
           Type: Api
           Properties:
@@ -1929,7 +2178,13 @@ Resources:
             Path: /users
             Method: POST
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
+        UsersOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref UserManagementApi
+            Path: /users
+            Method: OPTIONS
         GetUser:
           Type: Api
           Properties:
@@ -1937,7 +2192,7 @@ Resources:
             Path: /users/{username}
             Method: GET
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         DeleteUser:
           Type: Api
           Properties:
@@ -1945,7 +2200,7 @@ Resources:
             Path: /users/{username}
             Method: DELETE
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         UpdateUserGroups:
           Type: Api
           Properties:
@@ -1953,7 +2208,7 @@ Resources:
             Path: /users/{username}/groups
             Method: PUT
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
 
   # Profile Management API
   ProfileApi:
@@ -1962,8 +2217,8 @@ Resources:
       StageName: !Ref Environment
       Auth:
         Authorizers:
-          CustomAuthorizer:
-            FunctionArn: !GetAtt CustomIsPaidAuthorizerFunction.Arn
+          RBACAuthorizer:
+            FunctionArn: !GetAtt RBACAuthorizerFunction.Arn
             Identity:
               Header: Authorization
       Cors:
@@ -1998,7 +2253,7 @@ Resources:
             Path: /profile
             Method: GET
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         UpdateProfile:
           Type: Api
           Properties:
@@ -2006,7 +2261,7 @@ Resources:
             Path: /profile
             Method: PUT
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
 
   # Group Management API
   GroupManagementApi:
@@ -2015,8 +2270,8 @@ Resources:
       StageName: !Ref Environment
       Auth:
         Authorizers:
-          CustomAuthorizer:
-            FunctionArn: !GetAtt CustomIsPaidAuthorizerFunction.Arn
+          RBACAuthorizer:
+            FunctionArn: !GetAtt RBACAuthorizerFunction.Arn
             Identity:
               Header: Authorization
       Cors:
@@ -2084,7 +2339,7 @@ Resources:
             Path: /groups
             Method: GET
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         CreateGroup:
           Type: Api
           Properties:
@@ -2092,7 +2347,13 @@ Resources:
             Path: /groups
             Method: POST
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
+        GroupsOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroupManagementApi
+            Path: /groups
+            Method: OPTIONS
         GetGroup:
           Type: Api
           Properties:
@@ -2100,7 +2361,7 @@ Resources:
             Path: /groups/{groupId}
             Method: GET
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         UpdateGroup:
           Type: Api
           Properties:
@@ -2108,7 +2369,7 @@ Resources:
             Path: /groups/{groupId}
             Method: PUT
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         DeleteGroup:
           Type: Api
           Properties:
@@ -2116,7 +2377,7 @@ Resources:
             Path: /groups/{groupId}
             Method: DELETE
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         # Group membership operations
         AddMember:
           Type: Api
@@ -2125,7 +2386,7 @@ Resources:
             Path: /groups/{groupId}/members
             Method: POST
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         RemoveMember:
           Type: Api
           Properties:
@@ -2133,7 +2394,7 @@ Resources:
             Path: /groups/{groupId}/members/{userId}
             Method: DELETE
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         ListMembers:
           Type: Api
           Properties:
@@ -2141,7 +2402,7 @@ Resources:
             Path: /groups/{groupId}/members
             Method: GET
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         UpdateMemberRole:
           Type: Api
           Properties:
@@ -2149,7 +2410,7 @@ Resources:
             Path: /groups/{groupId}/members/{userId}
             Method: PUT
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
 
   SharedResourcesApi:
     Type: AWS::Serverless::Api
@@ -2157,8 +2418,8 @@ Resources:
       StageName: !Ref Environment
       Auth:
         Authorizers:
-          CustomAuthorizer:
-            FunctionArn: !GetAtt CustomIsPaidAuthorizerFunction.Arn
+          RBACAuthorizer:
+            FunctionArn: !GetAtt RBACAuthorizerFunction.Arn
             Identity:
               Header: Authorization
       Cors:
@@ -2225,7 +2486,7 @@ Resources:
             Path: /shared-resources
             Method: GET
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         ListResourcesSharedToMe:
           Type: Api
           Properties:
@@ -2233,7 +2494,7 @@ Resources:
             Path: /shared-resources/shared-to-me
             Method: GET
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         ShareResource:
           Type: Api
           Properties:
@@ -2241,7 +2502,13 @@ Resources:
             Path: /shared-resources
             Method: POST
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
+        SharedResourcesOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref SharedResourcesApi
+            Path: /shared-resources
+            Method: OPTIONS
         UnshareResource:
           Type: Api
           Properties:
@@ -2249,7 +2516,7 @@ Resources:
             Path: /shared-resources/{resourceType}/{resourceId}/groups/{groupId}
             Method: DELETE
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         UpdateSharedResource:
           Type: Api
           Properties:
@@ -2257,7 +2524,7 @@ Resources:
             Path: /shared-resources/{resourceType}/{resourceId}/groups/{groupId}
             Method: PUT
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
 
   KnowledgeBaseApi:
     Type: AWS::Serverless::Api
@@ -2265,14 +2532,15 @@ Resources:
       StageName: !Ref Environment
       Auth:
         Authorizers:
-          CustomAuthorizer:
-            FunctionArn: !GetAtt CustomIsPaidAuthorizerFunction.Arn
+          RBACAuthorizer:
+            FunctionArn: !GetAtt RBACAuthorizerFunction.Arn
             Identity:
               Header: Authorization
       Cors:
-        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
-        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowMethods: "'*'"
+        AllowHeaders: "'*'"
         AllowOrigin: "'*'"
+        AllowCredentials: false
 
   KnowledgeBaseManagementFunction:
     Type: AWS::Serverless::Function
@@ -2297,6 +2565,7 @@ Resources:
           IDENTITY_POOL_ID: !Ref CognitoIdentityPool
           BDA_JOB_QUEUE_URL: !Ref BDAJobQueue
           SYNC_SESSIONS_TABLE: !Ref SyncSessionsTable
+          GROUP_PERMISSIONS_TABLE: !Ref GroupPermissionsTable
           ALLOWED_ORIGINS: '*'
       Policies:
         - Version: '2012-10-17'
@@ -2316,6 +2585,7 @@ Resources:
                 - !GetAtt SharedKnowledgeBasesTable.Arn
                 - !GetAtt UserGroupsTable.Arn
                 - !GetAtt SyncSessionsTable.Arn
+                - !GetAtt GroupPermissionsTable.Arn
                 - !Sub "${KnowledgeBasesTable.Arn}/index/*"
                 - !Sub "${SharedKnowledgeBasesTable.Arn}/index/*"
                 - !Sub "${UserGroupsTable.Arn}/index/*"
@@ -2367,7 +2637,7 @@ Resources:
             Path: /knowledge-bases
             Method: GET
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         CreateKnowledgeBase:
           Type: Api
           Properties:
@@ -2375,7 +2645,13 @@ Resources:
             Path: /knowledge-bases
             Method: POST
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
+        CreateKnowledgeBaseOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref KnowledgeBaseApi
+            Path: /knowledge-bases
+            Method: OPTIONS
         GetKnowledgeBase:
           Type: Api
           Properties:
@@ -2383,7 +2659,7 @@ Resources:
             Path: /knowledge-bases/{knowledgeBaseId}
             Method: GET
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         UpdateKnowledgeBase:
           Type: Api
           Properties:
@@ -2391,7 +2667,7 @@ Resources:
             Path: /knowledge-bases/{knowledgeBaseId}
             Method: PUT
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         DeleteKnowledgeBase:
           Type: Api
           Properties:
@@ -2399,7 +2675,7 @@ Resources:
             Path: /knowledge-bases/{knowledgeBaseId}
             Method: DELETE
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         # Data Source operations
         ListDataSources:
           Type: Api
@@ -2408,7 +2684,7 @@ Resources:
             Path: /knowledge-bases/{knowledgeBaseId}/data-sources
             Method: GET
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         CreateDataSource:
           Type: Api
           Properties:
@@ -2416,7 +2692,7 @@ Resources:
             Path: /knowledge-bases/{knowledgeBaseId}/data-sources
             Method: POST
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         DeleteDataSource:
           Type: Api
           Properties:
@@ -2424,7 +2700,7 @@ Resources:
             Path: /knowledge-bases/{knowledgeBaseId}/data-sources/{dataSourceId}
             Method: DELETE
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         # Ingestion operations
         StartSync:
           Type: Api
@@ -2433,7 +2709,7 @@ Resources:
             Path: /knowledge-bases/{knowledgeBaseId}/sync
             Method: POST
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         StopSync:
           Type: Api
           Properties:
@@ -2441,7 +2717,7 @@ Resources:
             Path: /knowledge-bases/{knowledgeBaseId}/sync/{ingestionJobId}
             Method: DELETE
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         GetSyncStatus:
           Type: Api
           Properties:
@@ -2449,7 +2725,7 @@ Resources:
             Path: /knowledge-bases/{knowledgeBaseId}/sync
             Method: GET
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         # File operations
         ListFiles:
           Type: Api
@@ -2458,7 +2734,7 @@ Resources:
             Path: /knowledge-bases/{knowledgeBaseId}/files
             Method: GET
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         UploadFiles:
           Type: Api
           Properties:
@@ -2466,7 +2742,7 @@ Resources:
             Path: /knowledge-bases/{knowledgeBaseId}/files
             Method: POST
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         GetFileDownloadUrl:
           Type: Api
           Properties:
@@ -2474,7 +2750,7 @@ Resources:
             Path: /knowledge-bases/{knowledgeBaseId}/files/download
             Method: GET
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         DeleteFile:
           Type: Api
           Properties:
@@ -2482,7 +2758,7 @@ Resources:
             Path: /knowledge-bases/{knowledgeBaseId}/files
             Method: DELETE
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         KnowledgeBaseRetrieve:
           Type: Api
           Properties:
@@ -2490,7 +2766,7 @@ Resources:
             Path: /knowledge-bases/{knowledgeBaseId}/retrieve
             Method: POST
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         GetSyncSessionStatus:
           Type: Api
           Properties:
@@ -2498,7 +2774,7 @@ Resources:
             Path: /sync-sessions/{sessionId}
             Method: GET
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
 
   # Agent Management API
   AgentManagementApi:
@@ -2507,8 +2783,8 @@ Resources:
       StageName: !Ref Environment
       Auth:
         Authorizers:
-          CustomAuthorizer:
-            FunctionArn: !GetAtt CustomIsPaidAuthorizerFunction.Arn
+          RBACAuthorizer:
+            FunctionArn: !GetAtt RBACAuthorizerFunction.Arn
             Identity:
               Header: Authorization
       Cors:
@@ -2569,7 +2845,7 @@ Resources:
             Path: /agents
             Method: GET
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         CreateAgent:
           Type: Api
           Properties:
@@ -2577,7 +2853,13 @@ Resources:
             Path: /agents
             Method: POST
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
+        AgentsOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AgentManagementApi
+            Path: /agents
+            Method: OPTIONS
         GetAgent:
           Type: Api
           Properties:
@@ -2585,7 +2867,7 @@ Resources:
             Path: /agents/{agentId}
             Method: GET
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         UpdateAgent:
           Type: Api
           Properties:
@@ -2593,7 +2875,7 @@ Resources:
             Path: /agents/{agentId}
             Method: PUT
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
         DeleteAgent:
           Type: Api
           Properties:
@@ -2601,7 +2883,86 @@ Resources:
             Path: /agents/{agentId}
             Method: DELETE
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
+
+  # RBAC Management API
+  RBACApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Auth:
+        Authorizers:
+          RBACAuthorizer:
+            FunctionArn: !GetAtt RBACAuthorizerFunction.Arn
+            Identity:
+              Header: Authorization
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+        AllowCredentials: false
+
+  RBACManagementFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      CodeUri: ./functions/rbac-management/
+      Timeout: 30
+      Environment:
+        Variables:
+          USERS_TABLE: !Ref UsersTable
+          ROLES_TABLE: !Ref RolesTable
+          ROLE_AGENTS_TABLE: !Ref RoleAgentsTable
+          ALLOWED_ORIGINS: '*'
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:Query
+                - dynamodb:Scan
+              Resource:
+                - !GetAtt UsersTable.Arn
+                - !GetAtt RolesTable.Arn
+                - !GetAtt RoleAgentsTable.Arn
+                - !Sub "${RoleAgentsTable.Arn}/index/*"
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+                - kms:GenerateDataKey
+                - kms:DescribeKey
+              Resource: !GetAtt KMSKey.Arn
+      Events:
+        # Role Management
+        ListRoles:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RBACApi
+            Path: /roles
+            Method: GET
+        CreateRole:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RBACApi
+            Path: /roles
+            Method: POST
+        AssignAgentToRole:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RBACApi
+            Path: /roles/{roleId}/agents
+            Method: POST
+        GetUserDashboard:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RBACApi
+            Path: /users/{userId}/dashboard
+            Method: GET
 
   DocumentApi:
     Type: AWS::Serverless::Api
@@ -2609,14 +2970,48 @@ Resources:
       StageName: !Ref Environment
       Auth:
         Authorizers:
-          CustomAuthorizer:
-            FunctionArn: !GetAtt CustomIsPaidAuthorizerFunction.Arn
+          RBACAuthorizer:
+            FunctionArn: !GetAtt RBACAuthorizerFunction.Arn
             Identity:
               Header: Authorization
       Cors:
         AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
         AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
         AllowOrigin: "'*'"
+
+  # Setup Initial Roles Lambda
+  SetupInitialRolesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      CodeUri: ./functions/setup-initial-roles/
+      Timeout: 60
+      Environment:
+        Variables:
+          GROUP_PERMISSIONS_TABLE: !Ref GroupPermissionsTable
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:GetItem
+              Resource: !GetAtt GroupPermissionsTable.Arn
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+                - kms:GenerateDataKey
+                - kms:DescribeKey
+              Resource: !GetAtt KMSKey.Arn
+
+  # Custom Resource to trigger initial roles setup
+  InitialRolesSetup:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn: GroupPermissionsTable
+    Properties:
+      ServiceToken: !GetAtt SetupInitialRolesFunction.Arn
+      GroupPermissionsTable: !Ref GroupPermissionsTable
 
   # Document conversion function
   ConvertDocumentFunction:
@@ -2638,7 +3033,7 @@ Resources:
             Method: POST
             RestApiId: !Ref DocumentApi
             Auth:
-              Authorizer: CustomAuthorizer
+              Authorizer: RBACAuthorizer
 
 Outputs:
   UserManagementApiUrl:
@@ -2834,4 +3229,29 @@ Outputs:
     Description: URL of the Document API
     Value: !Sub https://${DocumentApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/
     Export:
-      Name: !Sub ${AWS::StackName}-DocumentApiUrl            
+      Name: !Sub ${AWS::StackName}-DocumentApiUrl
+
+  # NEW RBAC Table Outputs
+  UsersTableName:
+    Description: Name of the Users DynamoDB table
+    Value: !Ref UsersTable
+    Export:
+      Name: !Sub ${AWS::StackName}-UsersTableName
+
+  RolesTableName:
+    Description: Name of the Roles DynamoDB table
+    Value: !Ref RolesTable
+    Export:
+      Name: !Sub ${AWS::StackName}-RolesTableName
+
+  RoleAgentsTableName:
+    Description: Name of the Role Agents DynamoDB table
+    Value: !Ref RoleAgentsTable
+    Export:
+      Name: !Sub ${AWS::StackName}-RoleAgentsTableName
+
+  RBACApiUrl:
+    Description: URL of the RBAC Management API
+    Value: !Sub https://${RBACApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/
+    Export:
+      Name: !Sub ${AWS::StackName}-RBACApiUrl            

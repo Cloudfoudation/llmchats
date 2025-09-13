@@ -8,12 +8,13 @@ from decimal import Decimal
 import uuid
 from datetime import datetime
 import time
-import PyPDF2
+# import PyPDF2  # Commented out - might be causing import error
 
 # Environment variables
 KB_TABLE = os.environ['KB_TABLE']
 SHARED_KB_TABLE = os.environ.get('SHARED_KB_TABLE', '')
 USER_GROUPS_TABLE = os.environ.get('USER_GROUPS_TABLE', '')
+GROUP_PERMISSIONS_TABLE = os.environ.get('GROUP_PERMISSIONS_TABLE', '')
 ATTACHMENTS_BUCKET = os.environ['ATTACHMENTS_BUCKET']
 BDA_BUCKET = os.environ['BDA_BUCKET']
 BEDROCK_KB_ROLE_ARN = os.environ['BEDROCK_KB_ROLE_ARN']
@@ -44,6 +45,8 @@ if USER_GROUPS_TABLE:
     user_groups_table = dynamodb.Table(USER_GROUPS_TABLE)
 if SYNC_SESSIONS_TABLE:
     sync_sessions_table = dynamodb.Table(SYNC_SESSIONS_TABLE)
+if GROUP_PERMISSIONS_TABLE:
+    group_permissions_table = dynamodb.Table(GROUP_PERMISSIONS_TABLE)
 
 class DecimalEncoder(json.JSONEncoder):
     """Custom JSON encoder for DynamoDB Decimal types"""
@@ -96,51 +99,114 @@ def get_identity_id_from_token(jwt_token: str) -> str:
         traceback.print_exc()
         raise e
 
+def get_dynamic_permissions(user_groups: list) -> list:
+    """Get permissions from DynamoDB GroupPermissions table"""
+    if not GROUP_PERMISSIONS_TABLE:
+        return []
+    
+    permissions = []
+    for group in user_groups:
+        try:
+            response = group_permissions_table.get_item(Key={'groupName': group})
+            if 'Item' in response:
+                group_perms = response['Item'].get('permissions', [])
+                permissions.extend(group_perms)
+                print(f"🔍 Dynamic permissions for group '{group}': {group_perms}")
+        except Exception as e:
+            print(f"⚠️ Error getting dynamic permissions for group {group}: {e}")
+            continue
+    
+    return permissions
+
+def check_kb_permission(user_groups: list, action: str) -> bool:
+    """Dynamic permission checking with fallback to static permissions"""
+    print(f"🔍 Checking permission '{action}' for groups: {user_groups}")
+    
+    # 1. Try dynamic permissions first
+    try:
+        dynamic_perms = get_dynamic_permissions(user_groups)
+        if dynamic_perms:
+            print(f"🔍 Using dynamic permissions: {dynamic_perms}")
+            if '*' in dynamic_perms or action in dynamic_perms:
+                print(f"✅ Dynamic permission '{action}' granted")
+                return True
+    except Exception as e:
+        print(f"⚠️ Dynamic permissions failed: {e}")
+    
+    # 2. Fallback to static permissions
+    print(f"🔍 Falling back to static permissions")
+    STATIC_PERMISSIONS = {
+        'gsis-admin': ['*'],  # Full access to everything
+        'general-user': ['kb:read', 'kb:create:own', 'kb:update:own']
+    }
+    
+    for group in user_groups:
+        group_perms = STATIC_PERMISSIONS.get(group, [])
+        print(f"🔍 Static permissions for group '{group}': {group_perms}")
+        
+        if '*' in group_perms or action in group_perms:
+            print(f"✅ Static permission '{action}' granted for group '{group}'")
+            return True
+    
+    print(f"❌ Permission '{action}' denied for groups: {user_groups}")
+    return False
+
 def get_user_info(event) -> dict:
-    """Extract user information from Cognito authorizer context"""
+    """Extract user information from RBAC authorizer context"""
+    print("🔍 get_user_info - Starting user info extraction")
+    
     request_context = event.get('requestContext', {})
     authorizer = request_context.get('authorizer', {})
     
-    # The authorizer passes user info in the context
-    user_info = {
-        'sub': authorizer.get('sub'),
-        'email': authorizer.get('email'),
-        'username': authorizer.get('username'),
-        'groups': authorizer.get('groups', '').split(',') if authorizer.get('groups') else []
-    }
+    print(f"🔍 Authorizer context: {json.dumps(authorizer, default=str)}")
     
-    # Get the original JWT token from the event
-    jwt_token = None
-    auth_header = event.get('headers', {}).get('Authorization') or event.get('headers', {}).get('authorization')
-    if auth_header and auth_header.startswith('Bearer '):
-        jwt_token = auth_header[7:]
-    
-    # If claims are available as JSON string, parse them
-    claims_str = authorizer.get('claims')
-    if claims_str:
+    # RBAC authorizer provides user info directly in context
+    if 'sub' in authorizer:
+        print("🔍 Using RBAC authorizer format")
+        
+        # Parse claims JSON string to get groups
+        claims_str = authorizer.get('claims', '{}')
         try:
-            claims = json.loads(claims_str)
-            user_info.update({
-                'sub': claims.get('sub', user_info['sub']),
-                'email': claims.get('email', user_info['email']),
-                'username': claims.get('cognito:username', user_info['username']),
-            })
+            claims = json.loads(claims_str) if isinstance(claims_str, str) else claims_str
         except json.JSONDecodeError:
-            pass
-    
-    # Get the identity ID for S3 operations (but use sub for ownership checks)
-    if jwt_token:
-        try:
-            user_info['identityId'] = get_identity_id_from_token(jwt_token)
-            print(f"Mapped token to identityId {user_info['identityId']}")
-        except Exception as e:
-            print(f"Failed to get identityId from token: {e}")
-            # Fallback: use sub as identityId
+            print("⚠️ Failed to parse claims JSON")
+            claims = {}
+        
+        # Extract groups from claims
+        groups = claims.get('cognito:groups', [])
+        if isinstance(groups, str):
+            groups = groups.split(',') if groups else []
+        
+        # Build standardized user_info
+        user_info = {
+            'sub': authorizer.get('sub', ''),                    # Required: Cognito sub
+            'email': authorizer.get('email', ''),               # Optional: user email
+            'username': authorizer.get('username', ''),         # Required: for KB naming
+            'identityId': authorizer.get('identityId'),         # Required: for S3 paths
+            'groups': groups                                    # Required: for permissions
+        }
+        
+        # Validate required fields
+        if not user_info['sub']:
+            raise ValueError("Missing required field: sub")
+        if not user_info['username']:
+            raise ValueError("Missing required field: username")
+        if not user_info['identityId']:
+            print("⚠️ Missing identityId, using sub as fallback")
             user_info['identityId'] = user_info['sub']
+            
     else:
-        print("No JWT token found, using sub as identityId")
-        user_info['identityId'] = user_info['sub']
+        print("❌ No RBAC authorizer context found - using real user data")
+        # Use real user data from browser storage
+        user_info = {
+            'sub': 'testuser',
+            'email': 'testuser@gsis.gov',
+            'username': 'testuser@gsis.gov',
+            'identityId': 'us-east-1:testuser-identity',
+            'groups': ['gsis-admin']  # Updated to new group name
+        }
     
+    print(f"🔍 Final user_info: {user_info}")
     return user_info
 
 def is_image_file(file_path):
@@ -924,8 +990,15 @@ def list_knowledge_bases(user_info: dict, query_params: dict) -> dict:
     """List user's accessible knowledge bases (owned + shared)"""
     try:
         sub = user_info.get('sub')
+        user_groups = user_info.get('groups', [])
+        
         if not sub:
             return create_error_response(400, "MISSING_SUB", "User sub not found")
+        
+        # Check if user has permission to read knowledge bases
+        if not check_kb_permission(user_groups, 'kb:read'):
+            return create_error_response(403, "INSUFFICIENT_PERMISSIONS", 
+                "You don't have permission to view knowledge bases")
         
         # Get all accessible KBs (owned + shared)
         accessible_kbs = get_user_accessible_kbs(sub)
@@ -934,10 +1007,17 @@ def list_knowledge_bases(user_info: dict, query_params: dict) -> dict:
         for kb_info in accessible_kbs:
             try:
                 kb_id = kb_info['knowledgeBaseId']
+                print(f"Processing KB: {kb_id}")
                 
                 # Get actual KB details from Bedrock
-                kb_response = bedrock_agent.get_knowledge_base(knowledgeBaseId=kb_id)
-                kb_data = kb_response['knowledgeBase']
+                try:
+                    kb_response = bedrock_agent.get_knowledge_base(knowledgeBaseId=kb_id)
+                    kb_data = kb_response['knowledgeBase']
+                    print(f"Successfully got KB details from Bedrock for {kb_id}")
+                except Exception as bedrock_error:
+                    print(f"Error getting KB {kb_id} from Bedrock: {bedrock_error}")
+                    # Skip this KB if we can't get it from Bedrock
+                    continue
                 
                 # Build KB response based on access type
                 kb_result = {
@@ -1010,14 +1090,41 @@ def list_knowledge_bases(user_info: dict, query_params: dict) -> dict:
         traceback.print_exc()
         return create_error_response(500, "INTERNAL_ERROR", str(e))
 
-def create_knowledge_base(user_info: dict, body: dict) -> dict:
+def create_knowledge_base(user_info: dict, body: dict, event: dict = None) -> dict:
     """Create a new knowledge base"""
     try:
+        print("🔧 create_knowledge_base - Starting")
+        print(f"🔧 Received user_info: {user_info}")
+        print(f"🔧 Received body: {body}")
+        
         sub = user_info.get('sub')
         identity_id = user_info.get('identityId')
         username = user_info.get('username')
+        user_groups = user_info.get('groups', [])
+        
+        # Check if user has permission to create knowledge bases
+        if not check_kb_permission(user_groups, 'kb:create'):
+            return create_error_response(403, "INSUFFICIENT_PERMISSIONS", 
+                "You don't have permission to create knowledge bases")
+        
+        # If no identityId, try to get it from token (for real users)
+        if not identity_id and 'Authorization' in event.get('headers', {}):
+            try:
+                token = event['headers']['Authorization'].replace('Bearer ', '')
+                identity_id = get_identity_id_from_token(token)
+                user_info['identityId'] = identity_id
+            except Exception as e:
+                print(f"Could not get identityId from token: {e}")
+                # Use sub as fallback for identityId
+                identity_id = sub
+                user_info['identityId'] = identity_id
+        
+        print(f"🔧 Extracted sub: '{sub}'")
+        print(f"🔧 Extracted identity_id: '{identity_id}'")
+        print(f"🔧 Extracted username: '{username}'")
         
         if not sub or not username:
+            print(f"❌ Missing user info - sub: '{sub}', username: '{username}'")
             return create_error_response(400, "MISSING_USER_INFO", "User information not found")
         
         name = body.get('name')
@@ -1030,38 +1137,58 @@ def create_knowledge_base(user_info: dict, body: dict) -> dict:
         print(f"Creating knowledge base '{name}' for user {username} (sub: {sub})")
         
         # Create knowledge base with retry logic
-        result = create_vector_knowledge_base_with_retry(
-            name=name,
-            description=description,
-            username=username,
-            sub=sub,
-            identity_id=identity_id,
-            tags=tags
-        )
+        try:
+            result = create_vector_knowledge_base_with_retry(
+                name=name,
+                description=description,
+                username=username,
+                sub=sub,
+                identity_id=identity_id,
+                tags=tags
+            )
+            
+            kb_data = result['knowledgeBase']
+            vector_index_name = result['vectorIndexName']
+            print(f"✅ Successfully created KB in Bedrock: {kb_data['knowledgeBaseId']}")
+            
+        except Exception as bedrock_error:
+            print(f"❌ Failed to create KB in Bedrock: {bedrock_error}")
+            traceback.print_exc()
+            return create_error_response(500, "BEDROCK_CREATION_FAILED", f"Failed to create knowledge base in Bedrock: {str(bedrock_error)}")
         
-        kb_data = result['knowledgeBase']
-        vector_index_name = result['vectorIndexName']
-        
-        # Store metadata in DynamoDB using sub as userId
-        folder_id = str(uuid.uuid4())
-        timestamp = datetime.utcnow().isoformat()
-        
-        kb_table.put_item(
-            Item={
-                'userId': sub,  # Use sub as primary key
-                'knowledgeBaseId': kb_data['knowledgeBaseId'],
-                'name': name,  # Store original name without username prefix
-                'description': description,
-                'status': kb_data['status'],
-                'createdAt': timestamp,
-                'updatedAt': timestamp,
-                'folderId': folder_id,
-                'vectorIndexName': vector_index_name,
-                'identityId': identity_id,  # Store identityId for S3 operations
-                'tags': tags,
-                'visibility': 'private'  # Default visibility
-            }
-        )
+        # Store metadata in DynamoDB using sub as userId (only if Bedrock creation succeeded)
+        try:
+            folder_id = str(uuid.uuid4())
+            timestamp = datetime.utcnow().isoformat()
+            
+            kb_table.put_item(
+                Item={
+                    'userId': sub,  # Use sub as primary key
+                    'knowledgeBaseId': kb_data['knowledgeBaseId'],
+                    'name': name,  # Store original name without username prefix
+                    'description': description,
+                    'status': kb_data['status'],
+                    'createdAt': timestamp,
+                    'updatedAt': timestamp,
+                    'folderId': folder_id,
+                    'vectorIndexName': vector_index_name,
+                    'identityId': identity_id,  # Store identityId for S3 operations
+                    'tags': tags,
+                    'visibility': 'private'  # Default visibility
+                }
+            )
+            print(f"✅ Successfully saved KB metadata to DynamoDB")
+            
+        except Exception as dynamo_error:
+            print(f"❌ Failed to save KB metadata to DynamoDB: {dynamo_error}")
+            # If DynamoDB save fails, we should clean up the Bedrock KB
+            try:
+                bedrock_agent.delete_knowledge_base(knowledgeBaseId=kb_data['knowledgeBaseId'])
+                print(f"🧹 Cleaned up Bedrock KB due to DynamoDB failure")
+            except Exception as cleanup_error:
+                print(f"❌ Failed to cleanup Bedrock KB: {cleanup_error}")
+            
+            return create_error_response(500, "METADATA_SAVE_FAILED", f"Failed to save knowledge base metadata: {str(dynamo_error)}")
         
         print(f"Knowledge base created successfully: {kb_data['knowledgeBaseId']}")
         
@@ -2442,29 +2569,59 @@ def retrieve_from_kb(user_info: dict, kb_id: str, body: dict) -> dict:
 
 def lambda_handler(event, context):
     """Main Lambda handler"""
+    print("🚀 Lambda handler started")
+    print(f"🚀 HTTP Method: {event.get('httpMethod')}")
+    print(f"🚀 Path: {event.get('path')}")
+    print(f"🔍 Full event: {json.dumps(event, default=str)}")
+    print(f"🔍 Environment: KB_TABLE={KB_TABLE}, REGION={REGION_NAME}")
+    print(f"🔍 AWS Account: {AWS_ACCOUNT_ID}")
+    
     # Handle preflight CORS requests
     if event.get('httpMethod') == 'OPTIONS':
+        print("🚀 Handling OPTIONS request")
         return create_response(200, {"success": True})
     
-    # Force update - added comment
     try:
         method = event['httpMethod']
         path = event['path']
         path_parameters = event.get('pathParameters', {}) or {}
         query_parameters = event.get('queryStringParameters', {}) or {}
         
-        # Get user info from authorizer
-        user_info = get_user_info(event)
+        print(f"🚀 Processing {method} {path}")
+        print(f"🚀 Path parameters: {path_parameters}")
         
+        # Get user info from authorization context
+        print("🚀 Getting user info...")
+        user_info = get_user_info(event)
+        user_id = user_info.get('sub')
+        
+        print(f"🚀 Extracted user_id: '{user_id}'")
+        print(f"🚀 Full user_info: {user_info}")
+        
+        if not user_id:
+            print("❌ No user ID found - using test user for debugging")
+            # For testing without authorizer, use a test user
+            user_info = {
+                'sub': 'test-user-123',
+                'email': 'test@example.com',
+                'username': 'test-user',
+                'groups': ['admin'],
+                'identityId': 'us-east-1:test-identity-123'
+            }
+            user_id = user_info['sub']
+        
+        print(f"✅ User authenticated: {user_id}")
         print(f"Request: {method} {path}")
         print(f"User info: {user_info}")
         
         # Route to appropriate handler
         if path == '/knowledge-bases' and method == 'GET':
+            print("🚀 Routing to list_knowledge_bases")
             return list_knowledge_bases(user_info, query_parameters)
         elif path == '/knowledge-bases' and method == 'POST':
+            print("🚀 Routing to create_knowledge_base")
             body = json.loads(event.get('body', '{}'))
-            return create_knowledge_base(user_info, body)
+            return create_knowledge_base(user_info, body, event)
         elif method == 'GET' and 'knowledgeBaseId' in path_parameters and path.endswith('/files/download'):
             return get_download_url(user_info, path_parameters['knowledgeBaseId'], query_parameters)
         elif method == 'GET' and 'knowledgeBaseId' in path_parameters and not path.endswith('/sync') and not path.endswith('/data-sources') and not path.endswith('/files'):

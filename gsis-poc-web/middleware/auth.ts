@@ -1,18 +1,18 @@
 export default defineNuxtRouteMiddleware(async (to, from) => {
-  const { isAuthenticated, isInitialized, checkAuth } = useAuth()
+  const authStore = useAuthStore()
   
   // Initialize auth if not done yet
-  if (!isInitialized.value) {
-    await checkAuth()
+  if (!authStore.isInitialized) {
+    await authStore.checkAuth()
   }
   
   // If not authenticated and not going to login page, redirect to login
-  if (!isAuthenticated.value && to.path !== '/login') {
+  if (!authStore.isAuthenticated && to.path !== '/login') {
     return navigateTo('/login')
   }
   
   // If authenticated and going to login page, redirect to home
-  if (isAuthenticated.value && to.path === '/login') {
+  if (authStore.isAuthenticated && to.path === '/login') {
     return navigateTo('/')
   }
 })

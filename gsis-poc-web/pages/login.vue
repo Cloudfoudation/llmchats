@@ -128,7 +128,8 @@ const showPassword = ref(false)
 const isLoading = ref(false)
 const error = ref('')
 
-const { login } = useAuth()
+const authStore = useAuthStore()
+const { login } = authStore
 
 const handleLogin = async () => {
   if (!email.value || !password.value) {

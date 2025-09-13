@@ -1,0 +1,174 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Clean Image Search Service with Face Recognition
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+  AllowedOrigin:
+    Type: String
+    Description: CORS allowed origin
+    Default: "*"
+
+Globals:
+  Function:
+    Runtime: python3.9
+    Timeout: 30
+    Environment:
+      Variables:
+        BUCKET: !Ref ImageBucket
+        RK_COLLECTION: !Sub "${AWS::StackName}-faces"
+        FACE_TABLE: !Ref FaceIndexTable
+        ALLOWED_ORIGIN: !Ref AllowedOrigin
+
+Resources:
+  # S3 Bucket for images
+  ImageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AWS::StackName}-images-${AWS::AccountId}"
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST, DELETE, HEAD]
+            AllowedOrigins: [!Ref AllowedOrigin]
+            MaxAge: 3000
+
+  # DynamoDB table for face index
+  FaceIndexTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${AWS::StackName}-FaceIndex"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: FaceId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: FaceId
+          KeyType: HASH
+
+  # API Gateway
+  ImageSearchApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowMethods: ['*']
+        AllowHeaders: ['*']
+        AllowOrigins: [!Ref AllowedOrigin]
+
+  # Presign Upload Function
+  PresignUploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/presign-upload/
+      Handler: app.lambda_handler
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref ImageBucket
+      Events:
+        PresignApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ImageSearchApi
+            Path: /presign
+            Method: POST
+
+  # Index Faces Function
+  IndexFacesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/index-faces/
+      Handler: app.lambda_handler
+      Timeout: 60
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref ImageBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FaceIndexTable
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - rekognition:*
+              Resource: '*'
+      Events:
+        IndexFacesApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ImageSearchApi
+            Path: /index/faces
+            Method: POST
+
+  # Search Faces Function
+  SearchFacesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/search-faces/
+      Handler: app.lambda_handler
+      Timeout: 60
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref ImageBucket
+        - DynamoDBReadPolicy:
+            TableName: !Ref FaceIndexTable
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - rekognition:*
+              Resource: '*'
+      Events:
+        SearchFacesApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ImageSearchApi
+            Path: /search/faces
+            Method: POST
+
+  # List Images Function
+  ListImagesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/list-images/
+      Handler: app.lambda_handler
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref ImageBucket
+        - DynamoDBReadPolicy:
+            TableName: !Ref FaceIndexTable
+      Events:
+        ListImagesApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ImageSearchApi
+            Path: /images
+            Method: GET
+
+  # Health Check Function
+  HealthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/health/
+      Handler: app.lambda_handler
+      Events:
+        HealthApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ImageSearchApi
+            Path: /health
+            Method: GET
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${ImageSearchApi}.execute-api.${AWS::Region}.amazonaws.com"
+  BucketName:
+    Description: S3 bucket name
+    Value: !Ref ImageBucket
+  FaceCollection:
+    Description: Rekognition collection name
+    Value: !Sub "${AWS::StackName}-faces"
+  FaceTable:
+    Description: DynamoDB face index table
+    Value: !Ref FaceIndexTable

@@ -1,0 +1,300 @@
+Nice—thanks for the full drop. I read through it end-to-end. Here are the most important issues and fixes I’d make right away (ordered by “likely to break prod” → “nice to have”):
+
+🚨 Must-fix bugs
+
+DynamoDB KeyConditionExpression is wrong (strings won’t work).
+Table.query requires condition objects (Key(...), Attr(...)), not raw strings. You’re using strings in several places, which will raise a validation error.
+
+from boto3.dynamodb.conditions import Key, Attr
+
+# BAD
+response = kb_table.query(
+    KeyConditionExpression='userId = :userId',
+    ExpressionAttributeValues={':userId': sub}
+)
+
+# GOOD
+response = kb_table.query(
+    KeyConditionExpression=Key('userId').eq(sub)
+)
+
+
+Fix every occurrence:
+
+check_kb_ownership
+
+list_knowledge_bases (when querying the GSI)
+
+check_kb_access (public KB GSI read)
+
+get_user_accessible_kbs (owned query + public scan is fine)
+
+get_knowledge_base (GSI read)
+
+upload_files (GSI read)
+
+Region env var mismatch.
+You set REGION_NAME = os.environ['REGION_NAME'] but get_identity_id_from_token tries os.environ['AWS_REGION']. That’s a likely KeyError.
+
+Either export AWS_REGION in the runtime, or change to REGION_NAME for consistency:
+
+region = os.environ.get('AWS_REGION', REGION_NAME)
+
+
+Leaking sensitive data in logs.
+get_user_info logs the full API Gateway event (and claims). That’ll include JWTs/PII. Remove or redact:
+
+print("🔍 get_user_info - Starting user info extraction")
+# Avoid:
+# print(f"🔍 Full event: {json.dumps(event, default=str)}")  # ❌
+# print(f"🔍 claims (raw): {claims}")                        # ❌
+
+
+BDA config likely has typos / wrong keys.
+You’ve got:
+
+"enableTextractAnalyzeDocumment": True  # note the double 'mm'
+
+
+Even if BDA passes this through, the option name looks misspelled. Also verify the entire standard_output_config shape against Bedrock Data Automation docs—these blocks (document.extraction.category.types, generativeField.types) are very specific; mismatches cause validation errors. (If you have a working sample from AWS docs, mirror it exactly.)
+
+⚠️ High impact / correctness
+
+DynamoDB GSI existence.
+You rely on IndexName='KnowledgeBaseIdIndex' across the code. Make sure the GSI actually exists on the KB_TABLE with partition key knowledgeBaseId. If it’s composite, adjust queries accordingly.
+
+S3 cross-region copy path for BDA staging.
+You copy to us-east-1 when current_region != 'us-east-1'. That’s fine, but note session.region_name can be None if no default region is set. Safer:
+
+current_region = boto3.session.Session().region_name or REGION_NAME
+
+
+Processed file pairing in list_files.
+You only mark originals as having processed versions if the processed file has already been seen in the paginator iteration order. Easy improvement: first collect all files, then post-process to link *.processed.json back to originals.
+
+Cognito Identity lookup may require different token.
+get_id typically expects a provider name mapping to a valid OpenID token (the “Logins” map often uses the id token, not the access token). Ensure the front end passes the ID token and that your Identity Pool is configured to trust the User Pool provider.
+
+Bedrock KB storage field mapping.
+You map:
+
+'fieldMapping': {'vectorField': 'embedding', 'textField': 'context', 'metadataField': 'doc_id'}
+
+
+Those must match your AOSS index schema created by CREATE_VECTOR_INDEX_LAMBDA. If the lambda chose different names (e.g., metadata instead of doc_id), retrieval will silently fail. Verify and keep these in one place (a shared config).
+
+IAM: allow S3 copy across regions + BDA arns.
+Double-check the Lambda role has:
+
+s3:GetObject, s3:PutObject, s3:CopyObject, s3:DeleteObject on both buckets (attachments + BDA bucket).
+
+bedrock-data-automation:* and bedrock-data-automation-runtime:* in us-east-1.
+
+aoss:* as needed by the index lambda (or that lambda’s role handles it).
+
+🧰 Robustness & DX
+
+Polling + timeouts.
+Your BDA job wait is fine. Consider surfacing progress in logs and making max_attempts/delay_seconds configurable via env vars.
+
+Safer JSON parsing for claims.
+You already guard string → JSON. Good. Also guard missing keys:
+
+claims = claims or {}
+
+
+Consistent visibility semantics.
+You treat public KBs as view-only for non-owners (good). Make sure update_knowledge_base forbids changing visibility on shared/public by non-owners (you already gate by ownership 👍).
+
+upload_files path ownership.
+You correctly use the owner’s identityId so shared users upload into the owner’s path. Good—just ensure you set an S3 bucket policy that allows that write pattern via the app’s credentials.
+
+Return shapes.
+Most handlers return consistent {success, data}—great. Make sure every error path uses create_error_response (a couple of print + continue spots could lead to partial results; that’s OK for list endpoints but log clearly).
+
+✂️ Example diffs to drop in
+
+Fix all DynamoDB queries (pattern):
+
+from boto3.dynamodb.conditions import Key, Attr
+
+def check_kb_ownership(sub: str, kb_id: str) -> bool:
+    try:
+        resp = kb_table.query(
+            KeyConditionExpression=Key('userId').eq(sub)
+        )
+        return any(item.get('knowledgeBaseId') == kb_id for item in resp.get('Items', []))
+    except Exception as e:
+        print(f"Error checking KB ownership: {e}")
+        return False
+
+# GSI lookups:
+kb_response = kb_table.query(
+    IndexName='KnowledgeBaseIdIndex',
+    KeyConditionExpression=Key('knowledgeBaseId').eq(kb_id),
+    Limit=1
+)
+
+# Public scan is already using Attr:
+public_scan_response = kb_table.scan(
+    FilterExpression=Attr('visibility').eq('public')
+)
+
+
+Region fallback in Cognito helper:
+
+def get_identity_id_from_token(jwt_token: str) -> str:
+    try:
+        user_pool_id = USER_POOL_ID
+        region = os.environ.get('AWS_REGION', REGION_NAME)
+        return cognito_identity.get_id(
+            IdentityPoolId=IDENTITY_POOL_ID,
+            Logins={f'cognito-idp.{region}.amazonaws.com/{user_pool_id}': jwt_token}
+        )['IdentityId']
+    except Exception as e:
+        ...
+
+
+Remove sensitive logging:
+
+def get_user_info(event) -> dict:
+    print("🔍 get_user_info - Starting user info extraction")
+    request_context = event.get('requestContext', {})
+    authorizer = request_context.get('authorizer', {})
+    claims = authorizer.get('claims', {}) or {}
+    if isinstance(claims, str):
+        try:
+            claims = json.loads(claims)
+        except json.JSONDecodeError:
+            claims = {}
+    ...
+
+
+Fix processed/original pairing:
+
+# After collecting all file infos into a dict by filename:
+by_name = {f['fileName']: f for f in files if f.get('isOriginal')}
+for proc in processed_only_files:
+    original = by_name.get(proc['originalName'])
+    if original:
+        original['hasProcessedVersion'] = True
+        original['processedFile'] = proc
+
+✅ Quick sanity checklist
+
+ Confirm GSI exists and matches code (KnowledgeBaseIdIndex with PK knowledgeBaseId).
+
+ Fix all KeyConditionExpression strings to Key(...).eq(...).
+
+ Align Bedrock Data Automation config keys with AWS docs.
+
+ Unify region usage (AWS_REGION vs REGION_NAME).
+
+ Remove sensitive logging of tokens/claims/event.
+
+ Verify AOSS index field names match fieldMapping.
+
+ Make S3/IAM permissions explicit for cross-region copy and BDA.
+
+If you want, paste me one CloudWatch error log you’re seeing right now—I’ll pinpoint the exact line and give a targeted patch.
+
+You said:
+im having a cors isue after change my rbac authrozer
+
+so from admin, paid, free to dynamic role with assing permission
+ChatGPT said:
+Thought for 10s
+
+Gotcha—CORS often breaks right after swapping authorizers/RBAC because failures (403/401) now come from the authorizer layer or API Gateway itself, which don’t include your Lambda’s CORS headers. Here’s the fastest way to get back to green:
+
+Fix it in 5 steps
+
+Don’t authorize OPTIONS.
+Make sure every route’s OPTIONS method is public and returns a 200 with CORS headers. If you’re on:
+
+REST API: add an OPTIONS method with MOCK or Lambda integration and no authorizer.
+
+HTTP API (v2): add a CORS config at the API level; you don’t need explicit OPTIONS routes.
+
+Add CORS headers to Gateway error responses (not just Lambda).
+Your Lambda already sets CORS, but 401/403/500 from the authorizer or Gateway won’t. Configure Gateway Responses:
+
+REST API → Gateway Responses:
+
+Update DEFAULT_4XX and DEFAULT_5XX to include:
+
+Access-Control-Allow-Origin: <your origin>
+Access-Control-Allow-Headers: Content-Type,Authorization,X-Amz-Date,X-Requested-With,X-Api-Key,X-Amz-Security-Token
+Access-Control-Allow-Methods: GET,POST,PUT,DELETE,OPTIONS
+Access-Control-Allow-Credentials: true
+
+
+HTTP API (v2): set CORS on the API (origins, headers, methods, credentials). HTTP API automatically applies it to errors.
+
+If you send credentials (cookies, Authorization, or credentials: "include"), don’t use *.
+Browsers require a specific origin and Access-Control-Allow-Credentials: true. Update your Lambda headers:
+
+# env: ALLOWED_ORIGINS = "https://app.example.com,https://staging.example.com"
+def create_response(status_code: int, body: dict, origin: str = None) -> dict:
+    allowed = [o.strip() for o in ALLOWED_ORIGINS.split(',') if o.strip()]
+    allow_origin = origin if origin in allowed else (allowed[0] if allowed else '*')
+    headers = {
+        'Access-Control-Allow-Origin': allow_origin,
+        'Access-Control-Allow-Headers': (
+            'Content-Type,Authorization,X-Amz-Date,X-Requested-With,'
+            'X-Api-Key,X-Amz-Security-Token'
+        ),
+        'Access-Control-Allow-Methods': 'OPTIONS,POST,GET,DELETE,PUT',
+    }
+    # Only send credentials header if not using "*"
+    if allow_origin != '*':
+        headers['Access-Control-Allow-Credentials'] = 'true'
+    return {
+        "statusCode": status_code,
+        "body": json.dumps(body, cls=DecimalEncoder),
+        "headers": headers,
+    }
+
+
+And in your handler’s start, pass the request Origin:
+
+origin = (event.get('headers') or {}).get('origin') or (event.get('headers') or {}).get('Origin')
+...
+return create_response(200, payload, origin=origin)
+
+
+Match preflight request headers.
+Your frontend’s preflight will send Access-Control-Request-Headers. Ensure your allowed headers cover everything you actually send (typical misses: authorization, x-amz-security-token). Case is insensitive, but include them anyway. If you use x-api-key, include it.
+
+Make the authorizer consistent with the routes.
+After moving from static roles (admin/paid/free) to dynamic permissions:
+
+Return 401 (unauthenticated) vs 403 (authenticated but not allowed) properly. Browsers treat both as CORS-sensitive; with step 2 configured, you’ll get headers either way.
+
+For HTTP API Lambda authorizers, ensure API-level CORS is enabled.
+
+For REST API custom authorizers, you can’t add headers from the authorizer response; rely on Gateway Responses (step 2).
+
+Quick checklist (copy/paste)
+
+ OPTIONS methods are unauthenticated.
+
+ API Gateway DEFAULT_4XX/5XX Gateway Responses have CORS headers.
+
+ API-level CORS (HTTP API) configured with exact origins, methods, headers, credentials.
+
+ Lambda responses include Access-Control-Allow-Credentials: true and non-* origin when using credentials.
+
+ Access-Control-Allow-Headers includes Authorization,X-Amz-Security-Token,X-Api-Key,Content-Type.
+
+ Frontend uses credentials: "include" only if you’ve enabled credentials server-side.
+
+If you tell me:
+
+which Gateway type you’re on (REST vs HTTP API),
+
+the exact browser console CORS error,
+
+your frontend fetch(...) options (especially credentials),
+
+…I’ll give you the exact config snippet (AWS Console/Terraform/CloudFormation) to drop in.

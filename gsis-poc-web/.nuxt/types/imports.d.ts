@@ -31,6 +31,8 @@ declare global {
   const getCurrentInstance: typeof import('../../node_modules/vue')['getCurrentInstance']
   const getCurrentScope: typeof import('../../node_modules/vue')['getCurrentScope']
   const getRouteRules: typeof import('../../node_modules/nuxt/dist/app/composables/manifest')['getRouteRules']
+  const globalAuthState: typeof import('../../composables/useGlobalState')['globalAuthState']
+  const globalRBACState: typeof import('../../composables/useGlobalState')['globalRBACState']
   const h: typeof import('../../node_modules/vue')['h']
   const hasInjectionContext: typeof import('../../node_modules/vue')['hasInjectionContext']
   const inject: typeof import('../../node_modules/vue')['inject']
@@ -98,10 +100,12 @@ declare global {
   const tryUseNuxtApp: typeof import('../../node_modules/nuxt/dist/app/nuxt')['tryUseNuxtApp']
   const unref: typeof import('../../node_modules/vue')['unref']
   const updateAppConfig: typeof import('../../node_modules/nuxt/dist/app/config')['updateAppConfig']
+  const useAgents: typeof import('../../composables/useAgents')['useAgents']
   const useAppConfig: typeof import('../../node_modules/nuxt/dist/app/config')['useAppConfig']
   const useAsyncData: typeof import('../../node_modules/nuxt/dist/app/composables/asyncData')['useAsyncData']
   const useAttrs: typeof import('../../node_modules/vue')['useAttrs']
   const useAuth: typeof import('../../composables/useAuth')['useAuth']
+  const useAuthStore: typeof import('../../stores/auth')['useAuthStore']
   const useChatService: typeof import('../../composables/useChatService')['useChatService']
   const useCookie: typeof import('../../node_modules/nuxt/dist/app/composables/cookie')['useCookie']
   const useCssModule: typeof import('../../node_modules/vue')['useCssModule']
@@ -112,6 +116,8 @@ declare global {
   const useHeadSafe: typeof import('../../node_modules/nuxt/dist/app/composables/head')['useHeadSafe']
   const useHydration: typeof import('../../node_modules/nuxt/dist/app/composables/hydrate')['useHydration']
   const useId: typeof import('../../node_modules/vue')['useId']
+  const useImageSearch: typeof import('../../composables/useImageSearch')['useImageSearch']
+  const useKnowledgeBases: typeof import('../../composables/useKnowledgeBases')['useKnowledgeBases']
   const useLazyAsyncData: typeof import('../../node_modules/nuxt/dist/app/composables/asyncData')['useLazyAsyncData']
   const useLazyFetch: typeof import('../../node_modules/nuxt/dist/app/composables/fetch')['useLazyFetch']
   const useLink: typeof import('../../node_modules/vue-router')['useLink']
@@ -122,6 +128,8 @@ declare global {
   const useNuxtDevTools: typeof import('../../node_modules/@nuxt/devtools/dist/runtime/use-nuxt-devtools')['useNuxtDevTools']
   const usePinia: typeof import('../../node_modules/@pinia/nuxt/dist/runtime/composables')['usePinia']
   const usePreviewMode: typeof import('../../node_modules/nuxt/dist/app/composables/preview')['usePreviewMode']
+  const useRBAC: typeof import('../../composables/useRBAC')['useRBAC']
+  const useRBACStore: typeof import('../../stores/rbac')['useRBACStore']
   const useRequestEvent: typeof import('../../node_modules/nuxt/dist/app/composables/ssr')['useRequestEvent']
   const useRequestFetch: typeof import('../../node_modules/nuxt/dist/app/composables/ssr')['useRequestFetch']
   const useRequestHeader: typeof import('../../node_modules/nuxt/dist/app/composables/ssr')['useRequestHeader']
@@ -165,6 +173,8 @@ declare global {
   const useServerHeadSafe: typeof import('../../node_modules/nuxt/dist/app/composables/head')['useServerHeadSafe']
   const useServerSeoMeta: typeof import('../../node_modules/nuxt/dist/app/composables/head')['useServerSeoMeta']
   const useShadowRoot: typeof import('../../node_modules/vue')['useShadowRoot']
+  const useSharedAuth: typeof import('../../composables/useGlobalState')['useSharedAuth']
+  const useSharedRBAC: typeof import('../../composables/useGlobalState')['useSharedRBAC']
   const useSlots: typeof import('../../node_modules/vue')['useSlots']
   const useState: typeof import('../../node_modules/nuxt/dist/app/composables/state')['useState']
   const useTemplateRef: typeof import('../../node_modules/vue')['useTemplateRef']
@@ -220,6 +230,8 @@ declare module 'vue' {
     readonly getCurrentInstance: UnwrapRef<typeof import('../../node_modules/vue')['getCurrentInstance']>
     readonly getCurrentScope: UnwrapRef<typeof import('../../node_modules/vue')['getCurrentScope']>
     readonly getRouteRules: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/manifest')['getRouteRules']>
+    readonly globalAuthState: UnwrapRef<typeof import('../../composables/useGlobalState')['globalAuthState']>
+    readonly globalRBACState: UnwrapRef<typeof import('../../composables/useGlobalState')['globalRBACState']>
     readonly h: UnwrapRef<typeof import('../../node_modules/vue')['h']>
     readonly hasInjectionContext: UnwrapRef<typeof import('../../node_modules/vue')['hasInjectionContext']>
     readonly inject: UnwrapRef<typeof import('../../node_modules/vue')['inject']>
@@ -287,10 +299,12 @@ declare module 'vue' {
     readonly tryUseNuxtApp: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/nuxt')['tryUseNuxtApp']>
     readonly unref: UnwrapRef<typeof import('../../node_modules/vue')['unref']>
     readonly updateAppConfig: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/config')['updateAppConfig']>
+    readonly useAgents: UnwrapRef<typeof import('../../composables/useAgents')['useAgents']>
     readonly useAppConfig: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/config')['useAppConfig']>
     readonly useAsyncData: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/asyncData')['useAsyncData']>
     readonly useAttrs: UnwrapRef<typeof import('../../node_modules/vue')['useAttrs']>
     readonly useAuth: UnwrapRef<typeof import('../../composables/useAuth')['useAuth']>
+    readonly useAuthStore: UnwrapRef<typeof import('../../stores/auth')['useAuthStore']>
     readonly useChatService: UnwrapRef<typeof import('../../composables/useChatService')['useChatService']>
     readonly useCookie: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/cookie')['useCookie']>
     readonly useCssModule: UnwrapRef<typeof import('../../node_modules/vue')['useCssModule']>
@@ -301,6 +315,8 @@ declare module 'vue' {
     readonly useHeadSafe: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/head')['useHeadSafe']>
     readonly useHydration: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/hydrate')['useHydration']>
     readonly useId: UnwrapRef<typeof import('../../node_modules/vue')['useId']>
+    readonly useImageSearch: UnwrapRef<typeof import('../../composables/useImageSearch')['useImageSearch']>
+    readonly useKnowledgeBases: UnwrapRef<typeof import('../../composables/useKnowledgeBases')['useKnowledgeBases']>
     readonly useLazyAsyncData: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/asyncData')['useLazyAsyncData']>
     readonly useLazyFetch: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/fetch')['useLazyFetch']>
     readonly useLink: UnwrapRef<typeof import('../../node_modules/vue-router')['useLink']>
@@ -311,6 +327,8 @@ declare module 'vue' {
     readonly useNuxtDevTools: UnwrapRef<typeof import('../../node_modules/@nuxt/devtools/dist/runtime/use-nuxt-devtools')['useNuxtDevTools']>
     readonly usePinia: UnwrapRef<typeof import('../../node_modules/@pinia/nuxt/dist/runtime/composables')['usePinia']>
     readonly usePreviewMode: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/preview')['usePreviewMode']>
+    readonly useRBAC: UnwrapRef<typeof import('../../composables/useRBAC')['useRBAC']>
+    readonly useRBACStore: UnwrapRef<typeof import('../../stores/rbac')['useRBACStore']>
     readonly useRequestEvent: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/ssr')['useRequestEvent']>
     readonly useRequestFetch: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/ssr')['useRequestFetch']>
     readonly useRequestHeader: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/ssr')['useRequestHeader']>
@@ -354,6 +372,8 @@ declare module 'vue' {
     readonly useServerHeadSafe: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/head')['useServerHeadSafe']>
     readonly useServerSeoMeta: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/head')['useServerSeoMeta']>
     readonly useShadowRoot: UnwrapRef<typeof import('../../node_modules/vue')['useShadowRoot']>
+    readonly useSharedAuth: UnwrapRef<typeof import('../../composables/useGlobalState')['useSharedAuth']>
+    readonly useSharedRBAC: UnwrapRef<typeof import('../../composables/useGlobalState')['useSharedRBAC']>
     readonly useSlots: UnwrapRef<typeof import('../../node_modules/vue')['useSlots']>
     readonly useState: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/state')['useState']>
     readonly useTemplateRef: UnwrapRef<typeof import('../../node_modules/vue')['useTemplateRef']>
