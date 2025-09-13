@@ -1,38 +1,21 @@
 <template>
-  <div class="min-h-screen bg-gray-50">
+  <div class="flex-1 bg-gray-50">
     <!-- Header -->
-    <header class="bg-white/80 backdrop-blur-sm border-b border-gray-100">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between items-center h-16 sm:h-20">
-          <div class="flex items-center space-x-2 sm:space-x-3">
-            <div class="w-6 h-6 sm:w-8 sm:h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-              <svg class="w-3 h-3 sm:w-5 sm:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14-7H3a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2z"></path>
-              </svg>
-            </div>
-            <h1 class="text-lg sm:text-2xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">Knowledge Bases</h1>
-          </div>
-          <div class="flex items-center space-x-2 sm:space-x-6">
-            <NuxtLink to="/admin/agents" class="hidden sm:block text-gray-600 hover:text-gray-900 text-sm font-medium transition-colors">
-              Agents
-            </NuxtLink>
-            <NuxtLink to="/admin/roles" class="hidden sm:block text-gray-600 hover:text-gray-900 text-sm font-medium transition-colors">
-              Roles
-            </NuxtLink>
-            <button
-              @click="showCreateModal = true"
-              class="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-3 py-2 sm:px-6 sm:py-2.5 rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg hover:shadow-xl font-medium text-sm sm:text-base"
-            >
-              <span class="sm:hidden">+</span>
-              <span class="hidden sm:inline">+ New Knowledge Base</span>
-            </button>
-          </div>
-        </div>
+    <header class="bg-white border-b border-gray-200 px-6 py-4">
+      <div class="flex justify-between items-center">
+        <h1 class="text-2xl font-bold text-gray-900">Knowledge Bases</h1>
+        <button
+          @click="showCreateModal = true"
+          class="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-3 py-2.5 md:px-6 rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg hover:shadow-xl font-medium"
+        >
+          <span class="md:hidden">+</span>
+          <span class="hidden md:inline">+ New Knowledge Base</span>
+        </button>
       </div>
     </header>
 
     <!-- Main Content -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+    <main class="px-6 py-6">
       <!-- Loading State -->
       <div v-if="loading" class="flex justify-center items-center py-12">
         <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -192,8 +175,11 @@ const { $api } = useNuxtApp()
 const showCreateModal = ref(false)
 const showUploadModal = ref(false)
 const showViewModal = ref(false)
+
 const selectedKbId = ref('')
 const kbFiles = ref<Record<string, any[]>>({})
+
+
 
 // Fetch knowledge bases and files on mount
 onMounted(async () => {

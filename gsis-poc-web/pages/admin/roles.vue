@@ -1,46 +1,25 @@
 <template>
-  <div class="min-h-screen bg-gray-50">
-    <!-- Header -->
-    <header class="bg-white border-b border-gray-200 sticky top-0 z-10">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex items-center justify-between h-16">
-          <div class="flex items-center space-x-4">
-            <NuxtLink to="/" class="text-gray-600 hover:text-gray-900">
-              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
-              </svg>
-            </NuxtLink>
-            <h1 class="text-2xl font-bold text-gray-900">Role Management</h1>
-          </div>
-          <div class="flex items-center space-x-4">
-            <span class="text-sm text-gray-600">{{ user?.email }}</span>
-            <button @click="logout" class="text-gray-600 hover:text-gray-900">
-              Sign out
-            </button>
-          </div>
-        </div>
-      </div>
-    </header>
-
-    <!-- Main Content -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <!-- Actions Bar -->
-      <div class="flex items-center justify-between mb-6">
+  <div class="flex-1 bg-gray-50">
+    <!-- Page Header -->
+    <header class="bg-white border-b border-gray-200 px-6 py-4">
+      <div class="flex justify-between items-center">
         <div>
-          <h2 class="text-lg font-medium text-gray-900">Roles</h2>
-          <p class="text-sm text-gray-600">Manage user roles and permissions</p>
+          <h1 class="text-2xl font-bold text-gray-900">Role Management</h1>
+          <p class="text-gray-600 mt-1">Manage user roles and permissions</p>
         </div>
         <button
           v-if="canManageRoles"
           @click="showCreateModal = true"
-          class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          class="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-3 py-2.5 md:px-6 rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg hover:shadow-xl font-medium"
         >
-          <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
-          </svg>
-          Create Role
+          <span class="md:hidden">+</span>
+          <span class="hidden md:inline">+ Create Role</span>
         </button>
       </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="px-6 py-6">
 
       <!-- Error Alert -->
       <div v-if="error" class="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">

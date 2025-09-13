@@ -1,7 +1,12 @@
 export default defineNuxtRouteMiddleware(async (to, from) => {
+  // Skip auth check on server side
+  if (process.server) {
+    return
+  }
+  
   const authStore = useAuthStore()
   
-  // Initialize auth if not done yet
+  // Wait for auth initialization
   if (!authStore.isInitialized) {
     await authStore.checkAuth()
   }

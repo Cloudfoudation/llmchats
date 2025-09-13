@@ -13,10 +13,11 @@
     "nuxt": "^3.8.0"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock": "^3.888.0",
     "@aws-sdk/client-bedrock-runtime": "^3.886.0",
     "@aws-sdk/client-cognito-identity": "^3.450.0",
     "@aws-sdk/client-cognito-identity-provider": "^3.886.0",
-    "@aws-sdk/credential-providers": "^3.886.0",
+    "@aws-sdk/credential-providers": "^3.888.0",
     "@nuxtjs/tailwindcss": "^6.8.4",
     "@pinia/nuxt": "^0.5.5",
     "@types/marked": "^5.0.2",

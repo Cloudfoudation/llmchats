@@ -29,15 +29,19 @@
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Model</label>
           <select
-            v-model="form.model"
+            v-model="form.modelParams.modelId"
             required
-            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            :disabled="modelsLoading"
+            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
           >
-            <option value="">Select a model</option>
-            <option value="anthropic.claude-3-5-sonnet-20240620-v1:0">Claude 3.5 Sonnet</option>
-            <option value="anthropic.claude-3-sonnet-20240229-v1:0">Claude 3 Sonnet</option>
-            <option value="anthropic.claude-3-haiku-20240307-v1:0">Claude 3 Haiku</option>
-            <option value="amazon.titan-text-premier-v1:0">Amazon Titan Text Premier</option>
+            <option value="">{{ modelsLoading ? 'Loading models...' : 'Select a model' }}</option>
+            <option
+              v-for="model in availableModels"
+              :key="model.modelId"
+              :value="model.modelId"
+            >
+              {{ model.modelName }}
+            </option>
           </select>
         </div>
 
@@ -50,6 +54,9 @@
             class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder="System prompt for the agent"
           />
+          <p class="text-sm text-blue-600 mt-2 p-2 bg-blue-50 rounded border">
+            <strong>Guide:</strong> {{ form.systemPrompt || 'Enter instructions like: "You are a helpful assistant that provides accurate information about government services. Be professional and courteous."' }}
+          </p>
         </div>
 
         <div>
@@ -112,31 +119,42 @@ const emit = defineEmits<Emits>()
 
 const { createAgent } = useAgents()
 const { knowledgeBases, fetchKnowledgeBases } = useKnowledgeBases()
+const { models: availableModels, loading: modelsLoading, fetchModels } = useBedrockModels()
 const loading = ref(false)
 
-const form = reactive<CreateAgentRequest>({
+const form = reactive({
   name: '',
   description: '',
-  model: '',
   systemPrompt: '',
-  knowledgeBaseId: ''
+  knowledgeBaseId: '',
+  modelParams: {
+    modelId: '',
+    temperature: 0.7,
+    maxTokens: 4096,
+    topP: 0.9
+  }
 })
 
 onMounted(() => {
   fetchKnowledgeBases()
+  fetchModels()
 })
 
 const resetForm = () => {
   form.name = ''
   form.description = ''
-  form.model = ''
   form.systemPrompt = ''
   form.knowledgeBaseId = ''
+  form.modelParams.modelId = ''
+  form.modelParams.temperature = 0.7
+  form.modelParams.maxTokens = 4096
+  form.modelParams.topP = 0.9
 }
 
 const handleSubmit = async () => {
   loading.value = true
   try {
+    console.log('🔍 Form data being sent:', JSON.stringify(form, null, 2))
     await createAgent(form)
     emit('created', { ...form })
     emit('close')

@@ -1,62 +1,24 @@
 <template>
-  <div class="min-h-screen bg-gray-50">
-    <!-- Header -->
-    <header class="bg-white border-b border-gray-200 sticky top-0 z-10">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex items-center justify-between h-16">
-          <div class="flex items-center space-x-4">
-            <NuxtLink to="/" class="text-gray-600 hover:text-gray-900">
-              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
-              </svg>
-            </NuxtLink>
-            <h1 class="text-2xl font-bold text-gray-900">Agent Management</h1>
-          </div>
-          <div class="flex items-center space-x-4">
-            <NuxtLink to="/admin/roles" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
-              Role Management
-            </NuxtLink>
-            <NuxtLink to="/admin/knowledge-bases" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
-              Knowledge Bases
-            </NuxtLink>
-            <span class="text-sm text-gray-600">{{ user?.email }}</span>
-            <button @click="logout" class="text-gray-600 hover:text-gray-900">
-              Sign out
-            </button>
-          </div>
+  <div class="flex-1 bg-gray-50">
+    <!-- Page Header -->
+    <header class="bg-white border-b border-gray-200 px-6 py-4">
+      <div class="flex justify-between items-center">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-900">Agent Management</h1>
+          <p class="text-gray-600 mt-1">Create and manage AI agents</p>
         </div>
+        <button
+          @click="showCreateModal = true"
+          class="bg-gradient-to-r from-green-600 to-green-700 text-white px-3 py-2.5 md:px-6 rounded-xl hover:from-green-700 hover:to-green-800 transition-all duration-200 shadow-lg hover:shadow-xl font-medium"
+        >
+          <span class="md:hidden">+</span>
+          <span class="hidden md:inline">+ Create Agent</span>
+        </button>
       </div>
     </header>
 
     <!-- Main Content -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <!-- Actions Bar -->
-      <div class="flex items-center justify-between mb-6">
-        <div>
-          <h2 class="text-lg font-medium text-gray-900">Agents</h2>
-          <p class="text-sm text-gray-600">Create and manage AI agents</p>
-        </div>
-        <div class="flex space-x-3">
-          <NuxtLink
-            to="/admin/knowledge-bases"
-            class="inline-flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
-            </svg>
-            Knowledge Bases
-          </NuxtLink>
-          <button
-            @click="showCreateModal = true"
-            class="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-          >
-            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
-            </svg>
-            Create Agent
-          </button>
-        </div>
-      </div>
+    <main class="px-6 py-6">
 
       <!-- Loading State -->
       <div v-if="loading" class="flex justify-center items-center py-12">
@@ -107,7 +69,7 @@
           <div class="space-y-3">
             <div>
               <span class="text-xs font-medium text-gray-500 uppercase tracking-wide">Model</span>
-              <p class="text-sm text-gray-900">{{ agent.model || 'Claude 3.5 Sonnet' }}</p>
+              <p class="text-sm text-gray-900">{{ agent.model || 'No model specified' }}</p>
             </div>
             
             <div>
@@ -140,7 +102,7 @@
 
     <!-- Create Agent Modal -->
     <CreateAgentModal
-      v-if="showCreateModal"
+      :isOpen="showCreateModal"
       @close="showCreateModal = false"
       @created="handleAgentCreated"
     />
@@ -174,7 +136,7 @@ onMounted(() => {
 
 const handleAgentCreated = () => {
   showCreateModal.value = false
-  // Agent is already added to the list by the composable
+  fetchAgents() // Refresh the agents list
 }
 
 const handleDeleteAgent = async (id) => {

@@ -1,35 +1,9 @@
 <template>
-  <div class="min-h-screen bg-gray-50 flex flex-col">
-    <!-- Header -->
-    <header class="bg-white border-b border-gray-100 sticky top-0 z-10 backdrop-blur-sm bg-white/95">
-      <div class="max-w-6xl mx-auto px-4 py-3">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center space-x-3">
-            <NuxtLink to="/" class="flex items-center space-x-3 hover:opacity-80 transition-opacity">
-              <div class="w-7 h-7 bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg flex items-center justify-center shadow-sm">
-                <span class="text-white font-bold text-xs">G</span>
-              </div>
-              <h1 class="text-lg font-semibold text-gray-900">GSIS AI</h1>
-            </NuxtLink>
-            <div class="hidden sm:block text-gray-300">|</div>
-            <h2 class="hidden sm:block text-lg font-medium text-gray-700">Image Search</h2>
-          </div>
-          <div class="flex items-center space-x-2">
-            <span class="text-sm text-gray-600 hidden sm:block">
-              {{ user?.email }}
-            </span>
-            <button 
-              @click="logout"
-              class="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-              title="Sign out"
-            >
-              <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
-              </svg>
-            </button>
-          </div>
-        </div>
-      </div>
+  <div class="flex-1 flex flex-col bg-gray-50">
+    <!-- Page Header -->
+    <header class="bg-white border-b border-gray-200 px-6 py-4">
+      <h1 class="text-2xl font-bold text-gray-900">Image Search</h1>
+      <p class="text-gray-600 mt-1">AI-powered face recognition and image search</p>
     </header>
 
     <!-- Main Content -->
@@ -174,7 +148,8 @@
 
 <script setup>
 definePageMeta({
-  middleware: 'auth'
+  middleware: 'auth',
+  layout: 'default'
 })
 
 // Pinia stores

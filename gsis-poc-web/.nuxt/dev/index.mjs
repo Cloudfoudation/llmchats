@@ -658,6 +658,7 @@ const _inlineRuntimeConfig = {
     "agentManagementApiUrl": "https://d8q6coohkc.execute-api.us-east-1.amazonaws.com/dev/",
     "knowledgeBaseApiUrl": "https://xll4e886d5.execute-api.us-east-1.amazonaws.com/dev/",
     "rbacApiUrl": "https://w3p74lydv5.execute-api.us-east-1.amazonaws.com/dev/",
+    "userManagementApiUrl": "https://0afocm1d58.execute-api.us-east-1.amazonaws.com/dev/",
     "appName": "GSIS AI Portal"
   }
 };

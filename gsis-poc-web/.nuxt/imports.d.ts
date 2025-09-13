@@ -32,11 +32,13 @@ export { definePageMeta } from '../node_modules/nuxt/dist/pages/runtime/composab
 export { defineLazyHydrationComponent } from '#app/composables/lazy-hydration';
 export { useAgents } from '../composables/useAgents';
 export { useAuth } from '../composables/useAuth';
+export { useBedrockModels } from '../composables/useBedrockModels';
 export { useChatService } from '../composables/useChatService';
 export { globalAuthState, globalRBACState, useSharedAuth, useSharedRBAC } from '../composables/useGlobalState';
 export { useImageSearch } from '../composables/useImageSearch';
 export { useKnowledgeBases } from '../composables/useKnowledgeBases';
 export { useRBAC } from '../composables/useRBAC';
+export { useRoleAgents } from '../composables/useRoleAgents';
 export { useAuthStore } from '../stores/auth';
 export { useRBACStore } from '../stores/rbac';
 export { defineStore, acceptHMRUpdate, usePinia, storeToRefs } from '../node_modules/@pinia/nuxt/dist/runtime/composables';

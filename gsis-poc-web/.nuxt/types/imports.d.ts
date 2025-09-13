@@ -106,6 +106,7 @@ declare global {
   const useAttrs: typeof import('../../node_modules/vue')['useAttrs']
   const useAuth: typeof import('../../composables/useAuth')['useAuth']
   const useAuthStore: typeof import('../../stores/auth')['useAuthStore']
+  const useBedrockModels: typeof import('../../composables/useBedrockModels')['useBedrockModels']
   const useChatService: typeof import('../../composables/useChatService')['useChatService']
   const useCookie: typeof import('../../node_modules/nuxt/dist/app/composables/cookie')['useCookie']
   const useCssModule: typeof import('../../node_modules/vue')['useCssModule']
@@ -136,6 +137,7 @@ declare global {
   const useRequestHeaders: typeof import('../../node_modules/nuxt/dist/app/composables/ssr')['useRequestHeaders']
   const useRequestURL: typeof import('../../node_modules/nuxt/dist/app/composables/url')['useRequestURL']
   const useResponseHeader: typeof import('../../node_modules/nuxt/dist/app/composables/ssr')['useResponseHeader']
+  const useRoleAgents: typeof import('../../composables/useRoleAgents')['useRoleAgents']
   const useRoute: typeof import('../../node_modules/nuxt/dist/app/composables/router')['useRoute']
   const useRouteAnnouncer: typeof import('../../node_modules/nuxt/dist/app/composables/route-announcer')['useRouteAnnouncer']
   const useRouter: typeof import('../../node_modules/nuxt/dist/app/composables/router')['useRouter']
@@ -305,6 +307,7 @@ declare module 'vue' {
     readonly useAttrs: UnwrapRef<typeof import('../../node_modules/vue')['useAttrs']>
     readonly useAuth: UnwrapRef<typeof import('../../composables/useAuth')['useAuth']>
     readonly useAuthStore: UnwrapRef<typeof import('../../stores/auth')['useAuthStore']>
+    readonly useBedrockModels: UnwrapRef<typeof import('../../composables/useBedrockModels')['useBedrockModels']>
     readonly useChatService: UnwrapRef<typeof import('../../composables/useChatService')['useChatService']>
     readonly useCookie: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/cookie')['useCookie']>
     readonly useCssModule: UnwrapRef<typeof import('../../node_modules/vue')['useCssModule']>
@@ -335,6 +338,7 @@ declare module 'vue' {
     readonly useRequestHeaders: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/ssr')['useRequestHeaders']>
     readonly useRequestURL: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/url')['useRequestURL']>
     readonly useResponseHeader: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/ssr')['useResponseHeader']>
+    readonly useRoleAgents: UnwrapRef<typeof import('../../composables/useRoleAgents')['useRoleAgents']>
     readonly useRoute: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/router')['useRoute']>
     readonly useRouteAnnouncer: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/route-announcer')['useRouteAnnouncer']>
     readonly useRouter: UnwrapRef<typeof import('../../node_modules/nuxt/dist/app/composables/router')['useRouter']>

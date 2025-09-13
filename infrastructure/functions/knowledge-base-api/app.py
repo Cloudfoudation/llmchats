@@ -27,6 +27,8 @@ AWS_ACCOUNT_ID = os.environ['AWS_ACCOUNT_ID']
 ALLOWED_ORIGINS = os.environ.get('ALLOWED_ORIGINS', '*')
 USER_POOL_ID = os.environ.get('USER_POOL_ID', '')
 IDENTITY_POOL_ID = os.environ.get('IDENTITY_POOL_ID', '')
+USERS_TABLE = os.environ.get('USERS_TABLE', '')
+ROLES_TABLE = os.environ.get('ROLES_TABLE', '')
 
 # Initialize clients
 dynamodb = boto3.resource('dynamodb')
@@ -47,6 +49,10 @@ if SYNC_SESSIONS_TABLE:
     sync_sessions_table = dynamodb.Table(SYNC_SESSIONS_TABLE)
 if GROUP_PERMISSIONS_TABLE:
     group_permissions_table = dynamodb.Table(GROUP_PERMISSIONS_TABLE)
+if USERS_TABLE:
+    users_table = dynamodb.Table(USERS_TABLE)
+if ROLES_TABLE:
+    roles_table = dynamodb.Table(ROLES_TABLE)
 
 class DecimalEncoder(json.JSONEncoder):
     """Custom JSON encoder for DynamoDB Decimal types"""
@@ -118,38 +124,42 @@ def get_dynamic_permissions(user_groups: list) -> list:
     
     return permissions
 
-def check_kb_permission(user_groups: list, action: str) -> bool:
-    """Dynamic permission checking with fallback to static permissions"""
-    print(f"🔍 Checking permission '{action}' for groups: {user_groups}")
+def check_kb_permission(user_groups: list, action: str, user_sub: str = None) -> bool:
+    """Dynamic permission checking using DynamoDB RBAC system"""
+    print(f"🔍 Checking permission '{action}' for user: {user_sub}")
     
-    # 1. Try dynamic permissions first
+    if not user_sub or not USERS_TABLE or not ROLES_TABLE:
+        print("⚠️ Missing user_sub or RBAC tables, falling back to basic check")
+        return 'admin' in user_groups  # Basic fallback
+    
     try:
-        dynamic_perms = get_dynamic_permissions(user_groups)
-        if dynamic_perms:
-            print(f"🔍 Using dynamic permissions: {dynamic_perms}")
-            if '*' in dynamic_perms or action in dynamic_perms:
-                print(f"✅ Dynamic permission '{action}' granted")
-                return True
-    except Exception as e:
-        print(f"⚠️ Dynamic permissions failed: {e}")
-    
-    # 2. Fallback to static permissions
-    print(f"🔍 Falling back to static permissions")
-    STATIC_PERMISSIONS = {
-        'gsis-admin': ['*'],  # Full access to everything
-        'general-user': ['kb:read', 'kb:create:own', 'kb:update:own']
-    }
-    
-    for group in user_groups:
-        group_perms = STATIC_PERMISSIONS.get(group, [])
-        print(f"🔍 Static permissions for group '{group}': {group_perms}")
+        # Get user's roles from DynamoDB
+        user_response = users_table.get_item(Key={'userId': user_sub})
+        if 'Item' not in user_response:
+            print(f"❌ User {user_sub} not found in users table")
+            return False
+            
+        user_roles = user_response['Item'].get('roles', [])
+        print(f"🔍 User roles: {user_roles}")
         
-        if '*' in group_perms or action in group_perms:
-            print(f"✅ Static permission '{action}' granted for group '{group}'")
-            return True
-    
-    print(f"❌ Permission '{action}' denied for groups: {user_groups}")
-    return False
+        # Check permissions for each role
+        for role_id in user_roles:
+            role_response = roles_table.get_item(Key={'roleId': role_id})
+            if 'Item' in role_response:
+                permissions = role_response['Item'].get('permissions', [])
+                print(f"🔍 Role {role_id} permissions: {permissions}")
+                
+                # Check if user has required permission
+                if '*' in permissions or action in permissions or 'KNOWLEDGE_BASE:*' in permissions:
+                    print(f"✅ Permission '{action}' granted via role '{role_id}'")
+                    return True
+        
+        print(f"❌ Permission '{action}' denied for user {user_sub}")
+        return False
+        
+    except Exception as e:
+        print(f"❌ Error checking RBAC permissions: {e}")
+        return False
 
 def get_user_info(event) -> dict:
     """Extract user information from RBAC authorizer context"""
@@ -996,7 +1006,7 @@ def list_knowledge_bases(user_info: dict, query_params: dict) -> dict:
             return create_error_response(400, "MISSING_SUB", "User sub not found")
         
         # Check if user has permission to read knowledge bases
-        if not check_kb_permission(user_groups, 'kb:read'):
+        if not check_kb_permission(user_groups, 'KNOWLEDGE_BASE:read', sub):
             return create_error_response(403, "INSUFFICIENT_PERMISSIONS", 
                 "You don't have permission to view knowledge bases")
         
@@ -1103,7 +1113,7 @@ def create_knowledge_base(user_info: dict, body: dict, event: dict = None) -> di
         user_groups = user_info.get('groups', [])
         
         # Check if user has permission to create knowledge bases
-        if not check_kb_permission(user_groups, 'kb:create'):
+        if not check_kb_permission(user_groups, 'KNOWLEDGE_BASE:create', sub):
             return create_error_response(403, "INSUFFICIENT_PERMISSIONS", 
                 "You don't have permission to create knowledge bases")
         

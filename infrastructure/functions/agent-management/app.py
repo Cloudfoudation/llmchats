@@ -374,6 +374,9 @@ def create_agent(body: dict, user_id: str) -> dict:
                 if isinstance(value, float):
                     model_params[key] = Decimal(str(value))
         
+        print(f"DEBUG: Original modelParams from body: {body['modelParams']}")
+        print(f"DEBUG: Converted modelParams: {model_params}")
+        
         agent = {
             'userId': user_id,
             'id': agent_id,

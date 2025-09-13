@@ -61,6 +61,15 @@ def list_roles() -> dict:
         response = roles_table.scan()
         roles = response.get('Items', [])
         
+        # Add agent count for each role
+        for role in roles:
+            role_id = role['roleId']
+            agent_response = role_agents_table.query(
+                KeyConditionExpression='roleId = :roleId',
+                ExpressionAttributeValues={':roleId': role_id}
+            )
+            role['assignedAgentCount'] = agent_response['Count']
+        
         return create_response(200, {"success": True, "data": {"roles": roles}})
         
     except Exception as e:
@@ -109,8 +118,14 @@ def get_user_dashboard(user_id: str) -> dict:
                 )
                 
                 for agent_item in agent_response.get('Items', []):
+                    # Get full agent details from agents table
+                    agent_id = agent_item['agentId']
+                    # Note: This requires cross-table query - agents table is in different service
+                    # For now, return basic structure that frontend can use
                     available_agents.append({
-                        'agentId': agent_item['agentId'],
+                        'id': agent_id,
+                        'agentId': agent_id,
+                        'name': f'Agent {agent_id[:8]}',  # Temporary until we can fetch full details
                         'assignedViaRole': role_id,
                         'roleName': role.get('roleName')
                     })

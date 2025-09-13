@@ -31,6 +31,7 @@ export default defineNuxtConfig({
       agentManagementApiUrl: process.env.NUXT_PUBLIC_AGENT_MANAGEMENT_API_URL,
       knowledgeBaseApiUrl: process.env.NUXT_PUBLIC_KNOWLEDGE_BASE_API_URL,
       rbacApiUrl: process.env.NUXT_PUBLIC_RBAC_API_URL,
+      userManagementApiUrl: process.env.NUXT_PUBLIC_USER_MANAGEMENT_API_URL,
       appName: process.env.NUXT_PUBLIC_APP_NAME || 'GSIS AI Portal'
     }
   }

@@ -2564,6 +2564,8 @@ Resources:
           BDA_JOB_QUEUE_URL: !Ref BDAJobQueue
           SYNC_SESSIONS_TABLE: !Ref SyncSessionsTable
           GROUP_PERMISSIONS_TABLE: !Ref GroupPermissionsTable
+          USERS_TABLE: !Ref UsersTable
+          ROLES_TABLE: !Ref RolesTable
           ALLOWED_ORIGINS: '*'
       Policies:
         - Version: '2012-10-17'
@@ -2584,6 +2586,8 @@ Resources:
                 - !GetAtt UserGroupsTable.Arn
                 - !GetAtt SyncSessionsTable.Arn
                 - !GetAtt GroupPermissionsTable.Arn
+                - !GetAtt UsersTable.Arn
+                - !GetAtt RolesTable.Arn
                 - !Sub "${KnowledgeBasesTable.Arn}/index/*"
                 - !Sub "${SharedKnowledgeBasesTable.Arn}/index/*"
                 - !Sub "${UserGroupsTable.Arn}/index/*"

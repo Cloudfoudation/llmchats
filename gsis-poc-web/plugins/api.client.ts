@@ -13,7 +13,8 @@ export default defineNuxtPlugin(() => {
 
   const api = {
     agent: createAgentService(agentApiUrl, getAuthHeaders),
-    knowledgeBase: createKnowledgeBaseService(knowledgeBaseApiUrl, getAuthHeaders)
+    knowledgeBase: createKnowledgeBaseService(knowledgeBaseApiUrl, getAuthHeaders),
+
   }
 
   return {

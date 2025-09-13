@@ -92,35 +92,20 @@ const emit = defineEmits(['close', 'assigned'])
 
 const rbacStore = useRBACStore()
 const { assignAgentToRole } = rbacStore
+const { agents, fetchAgents } = useAgents()
 
 // Form state
 const selectedAgentId = ref('')
 const isLoading = ref(false)
 const error = ref('')
 
-// Mock agents - replace with actual agent API call
-const availableAgents = ref([
-  {
-    id: 'agent-1',
-    name: 'General Inquiries Assistant',
-    description: 'Handles general public inquiries and information requests'
-  },
-  {
-    id: 'agent-2', 
-    name: 'HR Assistant',
-    description: 'Assists with HR-related questions and processes'
-  },
-  {
-    id: 'agent-3',
-    name: 'Legal Research Assistant', 
-    description: 'Helps with legal research and case analysis'
-  },
-  {
-    id: 'agent-4',
-    name: 'Executive Assistant',
-    description: 'Provides executive-level support and analytics'
-  }
-])
+// Real agents from API
+const availableAgents = computed(() => agents.value || [])
+
+// Fetch agents on mount
+onMounted(() => {
+  fetchAgents()
+})
 
 const handleSubmit = async () => {
   if (!selectedAgentId.value) return

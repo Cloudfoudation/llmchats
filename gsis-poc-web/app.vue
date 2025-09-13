@@ -1,6 +1,11 @@
 <template>
   <div class="min-h-screen bg-white">
-    <NuxtPage />
+    <NuxtLayout>
+      <NuxtPage :transition="{
+        name: 'page',
+        mode: 'out-in'
+      }" />
+    </NuxtLayout>
   </div>
 </template>
 

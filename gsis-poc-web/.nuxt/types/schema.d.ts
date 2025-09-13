@@ -132,6 +132,8 @@ declare module 'nuxt/schema' {
 
    rbacApiUrl: string,
 
+   userManagementApiUrl: string,
+
    appName: string,
   }
 }

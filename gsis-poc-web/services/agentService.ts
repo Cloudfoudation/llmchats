@@ -22,9 +22,16 @@ export class AgentService implements IAgentService {
 
       console.log('🔍 Response data:', response)
       
-      if (response.statusCode === 200) {
-        const body = JSON.parse(response.body)
-        return body.agents || []
+      if (response.success && response.data) {
+        return response.data.map((agent: any) => ({
+          id: agent.id,
+          name: agent.name,
+          description: agent.description,
+          model: agent.modelParams?.modelId || 'Model not available',
+          systemPrompt: agent.systemPrompt,
+          createdAt: new Date(agent.createdAt).toISOString(),
+          updatedAt: new Date(agent.lastEditedAt).toISOString()
+        }))
       }
       return []
     } catch (error) {
@@ -33,37 +40,27 @@ export class AgentService implements IAgentService {
     }
   }
 
-  async createAgent(agent: CreateAgentRequest): Promise<Agent> {
+  async createAgent(agent: any): Promise<Agent> {
     try {
-      const payload = {
-        name: agent.name,
-        description: agent.description,
-        systemPrompt: agent.systemPrompt,
-        modelParams: {
-          modelId: agent.model,
-          temperature: 0.7,
-          maxTokens: 2000
-        },
-        type: 'custom'
-      }
-
       const url = `${this.baseUrl.replace(/\/$/, '')}/agents`
       const response = await $fetch<any>(url, {
         method: 'POST',
         headers: this.getAuthHeaders(),
-        body: payload
+        body: agent
       })
 
-      if (response.statusCode === 200 || response.statusCode === 201) {
-        const body = JSON.parse(response.body)
+      console.log('🔍 Create agent response:', response)
+      
+      if (response.success && response.data) {
+        const data = response.data
         return {
-          id: body.id,
-          name: body.name,
-          description: body.description,
-          model: body.modelParams?.modelId || agent.model,
-          systemPrompt: body.systemPrompt,
-          createdAt: new Date(body.createdAt).toISOString(),
-          updatedAt: new Date(body.lastEditedAt).toISOString()
+          id: data.id,
+          name: data.name,
+          description: data.description,
+          model: data.modelParams?.modelId,
+          systemPrompt: data.systemPrompt,
+          createdAt: new Date(data.createdAt).toISOString(),
+          updatedAt: new Date(data.lastEditedAt).toISOString()
         }
       }
       throw new Error('Failed to create agent')

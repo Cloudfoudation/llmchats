@@ -33,18 +33,38 @@ def create_error_response(status_code: int, error_code: str, error_message: str)
 
 def check_admin_permission(user_groups: list) -> bool:
     """Check if user has admin permissions for user management"""
-    admin_groups = ['gsis-admin']
+    admin_groups = ['gsis-admin', 'admin', 'government-admin']
     return any(group in admin_groups for group in user_groups)
 
 def get_user_info(event) -> dict:
     """Extract user information from Cognito authorizer context"""
     request_context = event.get('requestContext', {})
     authorizer = request_context.get('authorizer', {})
-    claims = authorizer.get('claims', {})
     
-    groups = claims.get('cognito:groups')
-    if groups:
+    # Handle both direct claims dict and JSON string from RBAC authorizer
+    claims_data = authorizer.get('claims', {})
+    if isinstance(claims_data, str):
+        try:
+            claims = json.loads(claims_data)
+        except json.JSONDecodeError:
+            claims = {}
+    else:
+        claims = claims_data
+    
+    # Also check context for direct values (RBAC authorizer pattern)
+    if not claims:
+        claims = {
+            'sub': authorizer.get('sub'),
+            'email': authorizer.get('email'),
+            'cognito:username': authorizer.get('username'),
+            'cognito:groups': authorizer.get('groups', '')
+        }
+    
+    groups = claims.get('cognito:groups', '')
+    if isinstance(groups, str) and groups:
         groups = groups.split(',')
+    elif isinstance(groups, list):
+        groups = groups
     else:
         groups = []
     
@@ -68,9 +88,13 @@ def list_users(event, query_params: dict) -> dict:
     try:
         # Check admin permissions
         user_info = get_user_info(event)
-        if not check_admin_permission(user_info.get('groups', [])):
+        user_groups = user_info.get('groups', [])
+        print(f"🔍 User info: {user_info}")
+        print(f"🔍 User groups: {user_groups}")
+        
+        if not check_admin_permission(user_groups):
             return create_error_response(403, "INSUFFICIENT_PERMISSIONS", 
-                "You need admin permissions to list users")
+                f"You need admin permissions to list users. Current groups: {user_groups}")
         # Extract query parameters for pagination
         limit = int(query_params.get('limit', '50'))
         pagination_token = query_params.get('paginationToken')
