@@ -1,17 +1,15 @@
 <template>
-  <div class="min-h-screen bg-gray-50" :class="{ 'flex': authStore.isAuthenticated }">
-    <!-- Show sidebar only when authenticated -->
-    <template v-if="authStore.isAuthenticated">
-      <!-- Mobile Menu Overlay -->
-      <div v-if="showMobileMenu" @click="showMobileMenu = false" class="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"></div>
-      
-      <!-- Sidebar -->
-      <aside :class="[
-        'w-64 bg-white shadow-lg border-r border-gray-200 flex flex-col transition-transform duration-300 z-50',
-        'lg:translate-x-0 lg:relative lg:block',
-        showMobileMenu ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
-        'fixed inset-y-0 left-0 lg:static'
-      ]">
+  <div class="min-h-screen bg-gray-50 flex">
+    <!-- Mobile Menu Overlay -->
+    <div v-if="showMobileMenu" @click="showMobileMenu = false" class="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"></div>
+    
+    <!-- Sidebar -->
+    <aside :class="[
+      'w-64 bg-white shadow-lg border-r border-gray-200 flex flex-col transition-transform duration-300 z-50',
+      'lg:translate-x-0 lg:relative lg:block',
+      showMobileMenu ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
+      'fixed inset-y-0 left-0 lg:static'
+    ]">
       <!-- Logo/Brand -->
       <div class="p-6 border-b border-gray-100">
         <div class="flex items-center space-x-3">
@@ -105,48 +103,42 @@
       </nav>
 
       <!-- User Profile -->
-      <div class="p-4 border-t border-gray-100 mt-auto">
-        <div class="flex items-center space-x-3 px-3 py-2 rounded-lg bg-gray-50">
-          <div class="w-7 h-7 bg-gradient-to-br from-gray-400 to-gray-600 rounded-full flex items-center justify-center">
-            <span class="text-white text-xs font-medium">{{ userInitials }}</span>
+      <div class="p-4 border-t border-gray-100">
+        <div class="flex items-center space-x-3 px-4 py-3 rounded-xl bg-gray-50">
+          <div class="w-8 h-8 bg-gradient-to-br from-gray-400 to-gray-600 rounded-full flex items-center justify-center">
+            <span class="text-white text-sm font-medium">{{ userInitials }}</span>
           </div>
           <div class="flex-1 min-w-0">
-            <p class="text-xs font-medium text-gray-900 truncate">{{ authStore.user?.email }}</p>
-            <p class="text-xs text-gray-500">{{ authStore.user?.groups?.[0] || 'Member' }}</p>
+            <p class="text-sm font-medium text-gray-900 truncate">{{ authStore.user?.email }}</p>
+            <p class="text-xs text-gray-500">{{ authStore.user?.groups?.[0] || 'user' }}</p>
           </div>
-          <button @click="authStore.logout" class="text-gray-400 hover:text-red-500 transition-colors p-1">
-            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button @click="authStore.logout" class="text-gray-400 hover:text-red-500 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
             </svg>
           </button>
         </div>
       </div>
-      </aside>
+    </aside>
 
-      <!-- Main Content -->
-      <main class="flex-1 flex flex-col min-w-0 lg:ml-0">
-        <!-- Mobile Header -->
-        <div class="lg:hidden bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-          <button @click="showMobileMenu = true" class="p-2 text-gray-600 hover:text-gray-900">
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
-            </svg>
-          </button>
-          <h1 class="text-lg font-semibold text-gray-900">GSIS</h1>
-          <div class="w-10"></div>
-        </div>
-        
-        <!-- Page Content with Transition -->
-        <div class="flex-1 relative">
-          <slot />
-        </div>
-      </main>
-    </template>
-    
-    <!-- Full-width content when not authenticated -->
-    <template v-else>
-      <slot />
-    </template>
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col min-w-0 lg:ml-0">
+      <!-- Mobile Header -->
+      <div class="lg:hidden bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+        <button @click="showMobileMenu = true" class="p-2 text-gray-600 hover:text-gray-900">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+          </svg>
+        </button>
+        <h1 class="text-lg font-semibold text-gray-900">GSIS</h1>
+        <div class="w-10"></div>
+      </div>
+      
+      <!-- Page Content with Transition -->
+      <div class="flex-1 relative">
+        <slot />
+      </div>
+    </main>
   </div>
 </template>
 

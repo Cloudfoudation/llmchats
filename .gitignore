@@ -13,3 +13,8 @@ public/sw.js
 .env.production.sg
 .env.test*
 .env.local
+
+# Nuxt build outputs
+gsis-poc-web/.output/
+gsis-poc-web/.nuxt/
+gsis-poc-web/dist/
