@@ -166,12 +166,15 @@ const handleSubmit = async () => {
     
     // Upload files if any are selected
     if (selectedFiles.value.length > 0) {
-      for (const file of selectedFiles.value) {
-        await $api.knowledgeBase.uploadFile(kb.knowledgeBaseId, file)
-      }
+      await $api.knowledgeBase.uploadFiles(kb.knowledgeBaseId, selectedFiles.value)
     }
     
+    // Show success message
+    const { $toast } = useNuxtApp()
+    $toast.success('Knowledge base created and files uploaded successfully!')
+    
     $emit('created', kb)
+    $emit('close')
     
     // Reset form
     form.name = ''
@@ -179,6 +182,8 @@ const handleSubmit = async () => {
     selectedFiles.value = []
   } catch (error) {
     console.error('Failed to create knowledge base:', error)
+    const { $toast } = useNuxtApp()
+    $toast.error('Failed to create knowledge base: ' + error.message)
   }
 }
 </script>

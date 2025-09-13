@@ -56,7 +56,10 @@ export interface IKnowledgeBaseService {
   getKnowledgeBases(): Promise<KnowledgeBase[]>
   createKnowledgeBase(kb: CreateKnowledgeBaseRequest): Promise<KnowledgeBase>
   deleteKnowledgeBase(id: string): Promise<void>
-  uploadFile(knowledgeBaseId: string, file: File): Promise<void>
+  uploadFiles(knowledgeBaseId: string, files: File[]): Promise<void>
+  startSync(knowledgeBaseId: string): Promise<any>
+  getSyncStatus(knowledgeBaseId: string): Promise<any>
+  listFiles(knowledgeBaseId: string): Promise<any[]>
 }
 
 // RBAC Types - Following Interface Segregation Principle
@@ -149,13 +152,7 @@ export const PERMISSIONS = {
   }
 } as const
 
-export interface KnowledgeBase {
-  id: string
-  name: string
-  description: string
-  fileCount: number
-  lastUpdated: Date
-}
+
 
 export interface BedrockConfig {
   region: string
@@ -174,7 +171,7 @@ export interface Agent {
   description: string
   systemPrompt: string
   knowledgeBaseId?: string
-  type: AgentType
+  type?: 'bedrock' | 'custom'
   visibility?: ResourceVisibility
   bedrockAgentId?: string
   bedrockAgentAliasId?: string
@@ -191,7 +188,7 @@ export interface CreateAgentRequest {
   model: string
   systemPrompt: string
   knowledgeBaseId?: string
-  type?: AgentType
+  type?: 'bedrock' | 'custom'
   visibility?: ResourceVisibility
 }
 
@@ -206,11 +203,7 @@ export interface IAuthService {
   getCurrentUser(): Promise<User | null>
 }
 
-export interface IKnowledgeBaseService {
-  list(): Promise<KnowledgeBase[]>
-  upload(files: File[]): Promise<void>
-  search(query: string): Promise<string[]>
-}
+
 
 // RBAC Service Interfaces - Dependency Inversion Principle
 export interface IRBACService {

@@ -21,15 +21,15 @@ export class KnowledgeBaseService implements IKnowledgeBaseService {
       // Handle direct response format from our Lambda function
       if (response.success && response.data && response.data.knowledgeBases) {
         return response.data.knowledgeBases.map((kb: any) => ({
-          knowledgeBaseId: kb.id,
+          knowledgeBaseId: kb.knowledgeBaseId,
           name: kb.name,
           description: kb.description,
           status: kb.status,
-          createdAt: new Date(kb.createdAt * 1000).toISOString(),
-          updatedAt: new Date(kb.updatedAt * 1000).toISOString(),
-          accessType: 'owner',
+          createdAt: kb.createdAt,
+          updatedAt: kb.updatedAt,
+          accessType: kb.accessType || 'owner',
           isDuplicate: false,
-          permissions: {
+          permissions: kb.permissions || {
             canView: true,
             canEdit: true,
             canDelete: true,
@@ -57,15 +57,15 @@ export class KnowledgeBaseService implements IKnowledgeBaseService {
       console.log('🔍 API Response:', response)
 
       // Handle direct response format from our Lambda function
-      if (response.success && response.data && response.data.knowledgeBase) {
-        const data = response.data.knowledgeBase
+      if (response.success && response.data) {
+        const data = response.data
         return {
-          knowledgeBaseId: data.id,
+          knowledgeBaseId: data.knowledgeBaseId,
           name: data.name,
           description: data.description,
           status: data.status,
-          createdAt: new Date(data.createdAt * 1000).toISOString(), // Convert timestamp to ISO
-          updatedAt: new Date(data.updatedAt * 1000).toISOString(), // Convert timestamp to ISO
+          createdAt: data.createdAt,
+          updatedAt: data.updatedAt,
           accessType: 'owner',
           isDuplicate: false,
           permissions: {
@@ -105,25 +105,96 @@ export class KnowledgeBaseService implements IKnowledgeBaseService {
     }
   }
 
-  async uploadFile(knowledgeBaseId: string, file: File): Promise<void> {
+  async uploadFiles(knowledgeBaseId: string, files: File[]): Promise<void> {
     try {
-      const formData = new FormData()
-      formData.append('file', file)
+      // Step 1: Get presigned URLs
+      const uploadRequest = {
+        files: files.map(file => ({
+          name: file.name,
+          type: file.type
+        }))
+      }
 
-      const response = await fetch(`${this.baseUrl}/knowledge-bases/${knowledgeBaseId}/files`, {
+      const response = await $fetch<any>(`${this.baseUrl}/knowledge-bases/${knowledgeBaseId}/files`, {
         method: 'POST',
-        headers: {
-          'Authorization': this.getAuthHeaders().Authorization
-        },
-        body: formData
+        headers: this.getAuthHeaders(),
+        body: uploadRequest
       })
 
-      if (!response.ok) {
-        throw new Error('Failed to upload file')
+      if (!response.success || !response.data?.uploadUrls) {
+        throw new Error('Failed to get upload URLs')
       }
+
+      // Step 2: Upload files to S3 using presigned URLs
+      const uploadPromises = response.data.uploadUrls.map(async (urlInfo: any, index: number) => {
+        const file = files[index]
+        const uploadResponse = await fetch(urlInfo.uploadUrl, {
+          method: 'PUT',
+          body: file,
+          headers: {
+            'Content-Type': file.type
+          }
+        })
+
+        if (!uploadResponse.ok) {
+          throw new Error(`Failed to upload ${file.name}: ${uploadResponse.statusText}`)
+        }
+      })
+
+      await Promise.all(uploadPromises)
+
+      // Step 3: Start sync/ingestion
+      await this.startSync(knowledgeBaseId)
     } catch (error) {
-      console.error('Error uploading file:', error)
+      console.error('Error uploading files:', error)
       throw error
+    }
+  }
+
+  async startSync(knowledgeBaseId: string): Promise<any> {
+    try {
+      const response = await $fetch<any>(`${this.baseUrl}/knowledge-bases/${knowledgeBaseId}/sync`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: { processFiles: true }
+      })
+
+      if (!response.success) {
+        throw new Error('Failed to start sync')
+      }
+
+      return response.data
+    } catch (error) {
+      console.error('Error starting sync:', error)
+      throw error
+    }
+  }
+
+  async getSyncStatus(knowledgeBaseId: string): Promise<any> {
+    try {
+      const response = await $fetch<any>(`${this.baseUrl}/knowledge-bases/${knowledgeBaseId}/sync`, {
+        method: 'GET',
+        headers: this.getAuthHeaders()
+      })
+
+      return response.success ? response.data : null
+    } catch (error) {
+      console.error('Error getting sync status:', error)
+      return null
+    }
+  }
+
+  async listFiles(knowledgeBaseId: string): Promise<any[]> {
+    try {
+      const response = await $fetch<any>(`${this.baseUrl}/knowledge-bases/${knowledgeBaseId}/files`, {
+        method: 'GET',
+        headers: this.getAuthHeaders()
+      })
+
+      return response.success ? response.data.files : []
+    } catch (error) {
+      console.error('Error listing files:', error)
+      return []
     }
   }
 }

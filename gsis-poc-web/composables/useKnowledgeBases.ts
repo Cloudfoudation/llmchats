@@ -49,12 +49,56 @@ export const useKnowledgeBases = () => {
     }
   }
 
+  const uploadFiles = async (knowledgeBaseId: string, files: File[]) => {
+    loading.value = true
+    error.value = null
+    try {
+      await $api.knowledgeBase.uploadFiles(knowledgeBaseId, files)
+    } catch (err) {
+      error.value = 'Failed to upload files'
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const startSync = async (knowledgeBaseId: string) => {
+    try {
+      return await $api.knowledgeBase.startSync(knowledgeBaseId)
+    } catch (err) {
+      error.value = 'Failed to start sync'
+      throw err
+    }
+  }
+
+  const getSyncStatus = async (knowledgeBaseId: string) => {
+    try {
+      return await $api.knowledgeBase.getSyncStatus(knowledgeBaseId)
+    } catch (err) {
+      console.error('Failed to get sync status:', err)
+      return null
+    }
+  }
+
+  const listFiles = async (knowledgeBaseId: string) => {
+    try {
+      return await $api.knowledgeBase.listFiles(knowledgeBaseId)
+    } catch (err) {
+      console.error('Failed to list files:', err)
+      return []
+    }
+  }
+
   return {
     knowledgeBases: readonly(knowledgeBases),
     loading: readonly(loading),
     error: readonly(error),
     fetchKnowledgeBases,
     createKnowledgeBase,
-    deleteKnowledgeBase
+    deleteKnowledgeBase,
+    uploadFiles,
+    startSync,
+    getSyncStatus,
+    listFiles
   }
 }
