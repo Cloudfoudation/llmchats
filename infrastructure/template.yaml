@@ -28,7 +28,8 @@ Parameters:
     Default: http://localhost:3000
   BDABucket:
     Type: String
-    # Default: bedrock-bda-us-east-1-llmchats
+    Default: bedrock-bda-us-east-1-llmchats
+    Description: S3 bucket for Bedrock Data Automation processing
   AllowedOrigins:
     Type: String
     Default: '*'
@@ -176,9 +177,6 @@ Resources:
                 Resource:
                   - !GetAtt AttachmentsBucket.Arn
                   - !Sub ${AttachmentsBucket.Arn}/*
-                Condition:
-                  StringEquals:
-                    's3:ExistingObjectTag/BedrockKB': 'true'
               - Effect: Allow
                 Action:
                   - kms:Decrypt

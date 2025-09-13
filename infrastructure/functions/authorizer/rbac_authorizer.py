@@ -51,7 +51,7 @@ def validate_token(token):
     public_key = get_public_key(kid)
     
     user_pool_id = os.environ['USER_POOL_ID']
-    region = os.environ['AWS_REGION']
+    region = os.environ.get('COGNITO_REGION', os.environ.get('AWS_REGION', 'us-east-1'))
     
     claims = jwt.decode(
         token,
